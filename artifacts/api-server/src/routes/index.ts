@@ -1,0 +1,44 @@
+import { Router, type IRouter } from "express";
+import healthRouter from "./health";
+import authRouter from "./auth";
+import usersRouter from "./users";
+import backupRouter from "./backup";
+import reservationsRouter from "./reservations";
+import settingsRouter from "./settings";
+import statsRouter from "./stats";
+import facilitiesRouter from "./facilities";
+import instructorsRouter from "./instructors";
+import announcementsRouter from "./announcements";
+import walletRouter from "./wallet";
+import topupRouter from "./topup";
+import packagesRouter from "./packages";
+import chatRouter from "./chat";
+import checkinRouter from "./checkin";
+import notificationsRouter from "./notifications";
+import productsRouter from "./products";
+import ordersRouter from "./orders";
+import aiChatRouter from "./aiChat";
+
+const router: IRouter = Router();
+
+router.use(healthRouter);
+router.use("/auth", authRouter);
+router.use("/users", usersRouter);
+router.use("/backup", backupRouter);
+router.use("/reservations", reservationsRouter);
+router.use("/settings", settingsRouter);
+router.use("/stats", statsRouter);
+router.use("/facilities", facilitiesRouter);
+router.use("/instructors", instructorsRouter);
+router.use("/announcements", announcementsRouter);
+router.use("/wallet", walletRouter);
+router.use("/topup", topupRouter);
+router.use("/packages", packagesRouter);
+router.use("/chat", chatRouter);
+router.use("/checkin", checkinRouter);
+router.use("/notifications", notificationsRouter);
+router.use("/products", productsRouter);
+router.use("/orders", ordersRouter);
+router.use("/ai-chat", aiChatRouter);
+
+export default router;

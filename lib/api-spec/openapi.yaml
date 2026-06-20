@@ -1,0 +1,905 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: Village Swimming Pool Reservation System API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Authentication
+  - name: users
+    description: User management
+  - name: reservations
+    description: Reservation management
+  - name: settings
+    description: System settings
+  - name: stats
+    description: Statistics and dashboard
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Register new member
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterInput"
+      responses:
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List all users (admin only)
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserListResponse"
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create user (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get user by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    delete:
+      operationId: deleteUser
+      tags: [users]
+      summary: Delete user (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /users/{id}/reset-password:
+    post:
+      operationId: resetUserPassword
+      tags: [users]
+      summary: Reset user password (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordInput"
+      responses:
+        "200":
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /reservations:
+    get:
+      operationId: listReservations
+      tags: [reservations]
+      summary: List reservations
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: userId
+          in: query
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of reservations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationListResponse"
+    post:
+      operationId: createReservation
+      tags: [reservations]
+      summary: Create reservation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReservationInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reservation"
+        "400":
+          description: Conflict or validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /reservations/{id}:
+    get:
+      operationId: getReservation
+      tags: [reservations]
+      summary: Get reservation by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Reservation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reservation"
+    patch:
+      operationId: updateReservation
+      tags: [reservations]
+      summary: Update reservation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReservationUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reservation"
+    delete:
+      operationId: deleteReservation
+      tags: [reservations]
+      summary: Cancel reservation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /reservations/available-slots:
+    get:
+      operationId: getAvailableSlots
+      tags: [reservations]
+      summary: Get available time slots for a date
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Available slots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TimeSlot"
+
+  /reservations/my:
+    get:
+      operationId: getMyReservations
+      tags: [reservations]
+      summary: Get current user's reservations
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: My reservations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationListResponse"
+
+  /reservations/upcoming:
+    get:
+      operationId: getUpcomingReservations
+      tags: [reservations]
+      summary: Get upcoming reservations for current user
+      responses:
+        "200":
+          description: Upcoming reservations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Reservation"
+
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get system settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    patch:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update system settings (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsUpdate"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+
+  /stats/admin:
+    get:
+      operationId: getAdminStats
+      tags: [stats]
+      summary: Get admin dashboard statistics
+      responses:
+        "200":
+          description: Admin stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+
+  /stats/member:
+    get:
+      operationId: getMemberStats
+      tags: [stats]
+      summary: Get member dashboard statistics
+      responses:
+        "200":
+          description: Member stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberStats"
+
+  /stats/monthly:
+    get:
+      operationId: getMonthlyStats
+      tags: [stats]
+      summary: Get monthly usage statistics
+      parameters:
+        - name: year
+          in: query
+          schema:
+            type: integer
+        - name: month
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Monthly stats
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MonthlyStatItem"
+
+  /stats/top-users:
+    get:
+      operationId: getTopUsers
+      tags: [stats]
+      summary: Get most active users
+      responses:
+        "200":
+          description: Top users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TopUser"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+
+    RegisterInput:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        houseNumber:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        username:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+      required:
+        - firstName
+        - lastName
+        - houseNumber
+        - phone
+        - email
+        - username
+        - password
+
+    LoginInput:
+      type: object
+      properties:
+        usernameOrEmail:
+          type: string
+        password:
+          type: string
+        rememberMe:
+          type: boolean
+      required:
+        - usernameOrEmail
+        - password
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+      required:
+        - token
+        - user
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        firstName:
+          type: string
+        lastName:
+          type: string
+        houseNumber:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        username:
+          type: string
+        role:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - firstName
+        - lastName
+        - houseNumber
+        - phone
+        - email
+        - username
+        - role
+        - createdAt
+
+    UserUpdate:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        houseNumber:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+
+    UserListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        total:
+          type: integer
+        page:
+          type: integer
+        totalPages:
+          type: integer
+      required:
+        - users
+        - total
+        - page
+        - totalPages
+
+    ResetPasswordInput:
+      type: object
+      properties:
+        newPassword:
+          type: string
+      required:
+        - newPassword
+
+    ReservationInput:
+      type: object
+      properties:
+        date:
+          type: string
+        startTime:
+          type: string
+        endTime:
+          type: string
+        numberOfPeople:
+          type: integer
+        notes:
+          type: ["string", "null"]
+      required:
+        - date
+        - startTime
+        - endTime
+        - numberOfPeople
+
+    ReservationUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+        notes:
+          type: ["string", "null"]
+        numberOfPeople:
+          type: integer
+
+    Reservation:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        date:
+          type: string
+        startTime:
+          type: string
+        endTime:
+          type: string
+        numberOfPeople:
+          type: integer
+        status:
+          type: string
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+      required:
+        - id
+        - userId
+        - date
+        - startTime
+        - endTime
+        - numberOfPeople
+        - status
+        - createdAt
+        - user
+
+    ReservationListResponse:
+      type: object
+      properties:
+        reservations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Reservation"
+        total:
+          type: integer
+        page:
+          type: integer
+        totalPages:
+          type: integer
+      required:
+        - reservations
+        - total
+        - page
+        - totalPages
+
+    TimeSlot:
+      type: object
+      properties:
+        startTime:
+          type: string
+        endTime:
+          type: string
+        available:
+          type: boolean
+        currentPeople:
+          type: integer
+        maxPeople:
+          type: integer
+      required:
+        - startTime
+        - endTime
+        - available
+        - currentPeople
+        - maxPeople
+
+    Settings:
+      type: object
+      properties:
+        id:
+          type: integer
+        bookingEnabled:
+          type: boolean
+        openTime:
+          type: string
+        closeTime:
+          type: string
+        maxPeoplePerSlot:
+          type: integer
+        maxAdvanceDays:
+          type: integer
+        slotDurationMinutes:
+          type: integer
+        maintenanceMode:
+          type: boolean
+        maintenanceMessage:
+          type: ["string", "null"]
+      required:
+        - id
+        - bookingEnabled
+        - openTime
+        - closeTime
+        - maxPeoplePerSlot
+        - maxAdvanceDays
+        - slotDurationMinutes
+        - maintenanceMode
+
+    SettingsUpdate:
+      type: object
+      properties:
+        bookingEnabled:
+          type: boolean
+        openTime:
+          type: string
+        closeTime:
+          type: string
+        maxPeoplePerSlot:
+          type: integer
+        maxAdvanceDays:
+          type: integer
+        slotDurationMinutes:
+          type: integer
+        maintenanceMode:
+          type: boolean
+        maintenanceMessage:
+          type: ["string", "null"]
+
+    AdminStats:
+      type: object
+      properties:
+        totalMembers:
+          type: integer
+        totalReservations:
+          type: integer
+        todayReservations:
+          type: integer
+        monthReservations:
+          type: integer
+        upcomingReservations:
+          type: integer
+        cancelledThisMonth:
+          type: integer
+      required:
+        - totalMembers
+        - totalReservations
+        - todayReservations
+        - monthReservations
+        - upcomingReservations
+        - cancelledThisMonth
+
+    MemberStats:
+      type: object
+      properties:
+        totalReservations:
+          type: integer
+        upcomingCount:
+          type: integer
+        cancelledCount:
+          type: integer
+        thisMonthCount:
+          type: integer
+      required:
+        - totalReservations
+        - upcomingCount
+        - cancelledCount
+        - thisMonthCount
+
+    MonthlyStatItem:
+      type: object
+      properties:
+        month:
+          type: string
+        count:
+          type: integer
+        cancelled:
+          type: integer
+      required:
+        - month
+        - count
+        - cancelled
+
+    TopUser:
+      type: object
+      properties:
+        id:
+          type: integer
+        firstName:
+          type: string
+        lastName:
+          type: string
+        houseNumber:
+          type: string
+        reservationCount:
+          type: integer
+      required:
+        - id
+        - firstName
+        - lastName
+        - houseNumber
+        - reservationCount

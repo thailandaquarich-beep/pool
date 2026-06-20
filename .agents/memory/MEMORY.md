@@ -1,0 +1,2 @@
+- [Aquarich Pool Setup](aquarich-pool.md) — bcryptjs/jsonwebtoken must be in api-server deps; DB schema lives in lib/db/src/schema/; OpenAPI servers.url=/api makes generated hooks use /api/ prefix automatically
+- [Aquarich New Features](aquarich-features.md) — Wallet/Topup/Packages/Chat/ProfileImage/LINE button all shipped; new routes registered in routes/index.ts; DB pushed

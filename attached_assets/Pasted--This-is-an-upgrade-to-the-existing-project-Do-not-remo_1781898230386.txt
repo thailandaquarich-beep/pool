@@ -1,0 +1,456 @@
+
+This is an upgrade to the existing project.
+
+Do not remove existing booking functionality.
+
+Integrate all new features into the current system.
+
+⸻
+
+WALLET & CREDIT SYSTEM
+
+Create an internal wallet system.
+
+Each member has:
+	•	Wallet Balance
+	•	Credit Balance
+	•	Transaction History
+
+Database:
+
+Wallets
+	•	id
+	•	userId
+	•	balance
+	•	createdAt
+
+Transactions
+	•	id
+	•	userId
+	•	amount
+	•	type
+	•	description
+	•	status
+	•	createdAt
+
+⸻
+
+TOP-UP SYSTEM
+
+Members can add funds.
+
+Methods:
+	•	Bank Transfer
+	•	QR Payment
+	•	Slip Upload
+
+Member enters:
+	•	Amount
+	•	Upload Slip
+
+Admin verifies payment.
+
+After approval:
+
+Balance automatically increases.
+
+⸻
+
+BOOKING PAYMENT
+
+Before booking:
+
+Check wallet balance.
+
+If balance is insufficient:
+
+Show:
+
+“ยอดเงินคงเหลือไม่เพียงพอ”
+
+Display:
+
+[ เติมเงิน ]
+
+Button.
+
+After successful payment:
+
+Allow booking.
+
+⸻
+
+MEMBERSHIP PACKAGE SYSTEM
+
+Create Membership Plans.
+
+Admin can create:
+	•	Weekly Membership
+	•	Monthly Membership
+	•	Yearly Membership
+
+Admin Fields:
+	•	Package Name
+	•	Description
+	•	Price
+	•	Duration
+	•	Benefits
+	•	Status
+
+Example:
+
+Weekly Plan
+
+99 THB
+
+Monthly Plan
+
+299 THB
+
+Yearly Plan
+
+2999 THB
+
+⸻
+
+MEMBER VIEW
+
+Members should only see:
+	•	Package Name
+	•	Description
+	•	Benefits
+	•	Price
+	•	Purchase Button
+
+Hide admin controls.
+
+⸻
+
+PACKAGE PURCHASE FLOW
+
+Package Card
+
+↓
+
+Purchase
+
+↓
+
+Top-Up if required
+
+↓
+
+Payment
+
+↓
+
+Activation
+
+↓
+
+Membership Updated
+
+⸻
+
+PROFILE IMPROVEMENTS
+
+Member Profile Page
+
+Allow:
+	•	Edit Name
+	•	Edit Phone
+	•	Edit Email
+	•	Edit Password
+	•	Upload Profile Image
+	•	Change Avatar
+
+Save all changes to database.
+
+⸻
+
+CUSTOMER DATA STORAGE
+
+Store permanently:
+	•	Profile
+	•	Booking History
+	•	Attendance
+	•	Reward History
+	•	Membership History
+	•	Wallet History
+	•	Chat History
+
+⸻
+
+CONTACT & SUPPORT SYSTEM
+
+Add Support Center.
+
+Buttons:
+	•	Contact Admin
+	•	Contact Staff
+	•	Live Chat
+	•	LINE Official
+
+⸻
+
+LINE CHAT BUTTON
+
+Floating Button
+
+Bottom Right Corner
+
+Display:
+
+LINE Support
+
+When clicked:
+
+Open configured LINE URL.
+
+Admin can edit LINE URL from settings.
+
+⸻
+
+LIVE CHAT SYSTEM
+
+Create real-time chat.
+
+Member can:
+	•	Send Messages
+	•	Upload Images
+	•	Receive Replies
+
+Admin can:
+	•	View Conversations
+	•	Reply
+	•	Close Ticket
+
+Store all chat messages in database.
+
+⸻
+
+SUPER ADMIN MESSAGE CENTER
+
+Member can send messages directly to:
+	•	Admin
+	•	Super Admin
+
+Message Types:
+	•	Question
+	•	Complaint
+	•	Suggestion
+	•	Support Request
+
+Notification required.
+
+⸻
+
+NOTIFICATION SYSTEM
+
+Notify Admin when:
+	•	New Booking
+	•	New Payment
+	•	New Chat
+	•	New Support Ticket
+	•	New Membership Purchase
+
+⸻
+
+INSTRUCTOR SYSTEM VALIDATION
+
+Audit instructor system.
+
+Verify:
+	1.	Instructor can create availability.
+	2.	Instructor can select date.
+	3.	Instructor can select time.
+	4.	Instructor schedule saves correctly.
+	5.	No overlapping schedules.
+	6.	Schedule stored in database.
+
+⸻
+
+BOOKING PAGE VALIDATION
+
+When member selects a date.
+
+The system must show:
+	•	Instructor Name
+	•	Instructor Photo
+	•	Specialty
+	•	Facility
+	•	Session Time
+	•	Capacity
+	•	Remaining Slots
+
+Example:
+
+Coach:
+Somchai
+
+Date:
+25/06/2026
+
+Time:
+07:00 - 09:00
+
+Swimming Pool
+
+Remaining:
+5 Spots
+
+⸻
+
+MODERN BOOKING CALENDAR
+
+Completely redesign booking calendar.
+
+Requirements:
+	•	Modern UI
+	•	Luxury Design
+	•	Smooth Animations
+	•	Mobile Friendly
+
+Views:
+	•	Month
+	•	Week
+	•	Day
+
+Status Colors:
+
+Green = Available
+
+Orange = Limited
+
+Red = Full
+
+Blue = Reserved
+
+Gray = Closed
+
+⸻
+
+RESERVATION CARDS
+
+Display modern session cards.
+
+Show:
+	•	Instructor Photo
+	•	Instructor Name
+	•	Facility Image
+	•	Capacity
+	•	Remaining Slots
+	•	Reserve Button
+
+No outdated tables.
+
+⸻
+
+ADMIN SETTINGS CENTER
+
+Create centralized settings.
+
+Admin can configure:
+	•	Membership Packages
+	•	Wallet Settings
+	•	Booking Prices
+	•	Instructor Settings
+	•	LINE URL
+	•	Contact Information
+	•	Facility Settings
+	•	Capacity Limits
+
+⸻
+
+ROLE DIFFERENTIATION
+
+Member Dashboard
+	•	Reservations
+	•	Wallet
+	•	Membership
+	•	Rewards
+	•	Profile
+
+Instructor Dashboard
+	•	Availability
+	•	Schedule
+	•	Assigned Members
+	•	Attendance
+	•	Session Notes
+
+Admin Dashboard
+	•	User Management
+	•	Instructor Management
+	•	Payments
+	•	Facilities
+	•	Reports
+	•	Chat Center
+	•	Membership Packages
+	•	Settings
+
+Super Admin Dashboard
+	•	Full Access
+	•	Audit Logs
+	•	Role Management
+	•	System Configuration
+	•	Server Monitoring
+
+⸻
+
+BUG FIX & SYSTEM AUDIT
+
+Perform complete scan.
+
+Check:
+	•	Broken Pages
+	•	Blank Pages
+	•	Broken Buttons
+	•	API Errors
+	•	Permission Errors
+	•	Routing Errors
+	•	Calendar Errors
+	•	Booking Errors
+	•	Chat Errors
+	•	Wallet Errors
+	•	Payment Errors
+	•	Instructor Errors
+
+⸻
+
+DATABASE INTEGRITY
+
+Verify:
+	•	All data saves correctly.
+	•	No duplicate bookings.
+	•	No duplicate payments.
+	•	No orphan records.
+	•	No missing relationships.
+
+⸻
+
+DEPLOYMENT READY
+
+Prepare for VPS deployment.
+
+Generate:
+	•	Docker Setup
+	•	PM2 Config
+	•	Nginx Config
+	•	Production Build
+	•	Environment Variables
+
+Perform final QA before deployment.
+
+Application must be production-ready, mobile-friendly, secure, and free of critical bugs.
+
+ข้อความนี้จะสั่งให้ Replit อัปเกรดระบบเดิมให้มี:
+	•	เติมเงิน/เครดิตก่อนจอง
+	•	แพ็กเกจรายสัปดาห์ รายเดือน รายปี
+	•	แชตคุยกับแอดมินและซูเปอร์แอดมิน
+	•	ปุ่ม LINE OA
+	•	โปรไฟล์พร้อมอัปโหลดรูป
+	•	ระบบครูฝึกเชื่อมกับหน้าจอง
+	•	ปฏิทินจองแบบทันสมัย
+	•	แยกสิทธิ์ สมาชิก / ครูฝึก / แอดมิน / ซูเปอร์แอดมิน
+	•	ตรวจบั๊กทั้งระบบก่อน Deploy ขึ้น VPS
+	•	เก็บข้อมูลทุกอย่างลงฐานข้อมูลอย่างถาวรครับ।

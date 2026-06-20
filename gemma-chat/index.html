@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aquarich AI — Test Console (8787)</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#262b36; --me:#0ea5e9; --bot:#222834; --txt:#e6e9ef; --mut:#8b93a7; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.6 system-ui,"Segoe UI",sans-serif; background:var(--bg); color:var(--txt); }
+  .wrap { max-width:760px; margin:0 auto; height:100vh; display:flex; flex-direction:column; }
+  header { padding:10px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  header h1 { font-size:15px; margin:0; flex:1; }
+  .dot { width:9px; height:9px; border-radius:50%; background:#3ddc84; } .dot.off { background:#e0556e; }
+  input,button { font:inherit; color:var(--txt); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:7px 10px; }
+  button { cursor:pointer; } button:hover { border-color:#3a4252; }
+  .tokenbar { padding:8px 16px; border-bottom:1px solid var(--line); display:flex; gap:8px; align-items:center; }
+  .tokenbar input { flex:1; font-size:12px; }
+  #log { flex:1; overflow:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
+  .msg { max-width:82%; padding:9px 12px; border-radius:12px; white-space:pre-wrap; word-wrap:break-word; }
+  .me { align-self:flex-end; background:var(--me); border-bottom-right-radius:3px; }
+  .bot { align-self:flex-start; background:var(--bot); border:1px solid var(--line); border-bottom-left-radius:3px; }
+  .meta { font-size:11px; color:var(--mut); margin-top:3px; }
+  .sys { align-self:center; color:var(--mut); font-size:12px; }
+  .cursor::after { content:"▌"; animation:blink 1s steps(2) infinite; } @keyframes blink { 50% { opacity:0; } }
+  form { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--line); }
+  #box { flex:1; resize:none; background:var(--panel); color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:10px; font:inherit; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="dot" id="status"></span>
+    <h1>Aquarich AI — Test Console</h1>
+    <span class="mut" id="modelLbl"></span>
+  </header>
+  <div class="tokenbar">
+    <span class="mut">pool_token (JWT):</span>
+    <input id="token" placeholder="วาง JWT ของสมาชิกที่นี่ เพื่อทดสอบข้อมูลจริง (ว่าง = guest)" />
+  </div>
+  <div id="log"></div>
+  <form id="form">
+    <textarea id="box" rows="1" placeholder="ลองถาม: การจองของฉันวันไหน / ยอดเงินเหลือเท่าไหร่ / สระเปิดกี่โมง"></textarea>
+    <button type="submit" id="send">ส่ง</button>
+  </form>
+</div>
+<script>
+const $ = (s) => document.querySelector(s);
+const log = $("#log");
+let history = [];
+function bubble(t, c){ const d=document.createElement("div"); d.className="msg "+c; d.textContent=t; log.appendChild(d); log.scrollTop=log.scrollHeight; return d; }
+function sysline(t){ const d=document.createElement("div"); d.className="sys"; d.textContent=t; log.appendChild(d); log.scrollTop=log.scrollHeight; }
+async function loadState(){ try { const s=await (await fetch("/api/state")).json(); $("#status").className="dot"+((s.chatEnabled&&s.modelOn)?"":" off"); $("#modelLbl").textContent=s.model; } catch {} }
+$("#box").addEventListener("keydown",(e)=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); $("#form").requestSubmit(); }});
+$("#form").addEventListener("submit", async (e)=>{
+  e.preventDefault();
+  const box=$("#box"), text=box.value.trim(); if(!text) return;
+  box.value=""; bubble(text,"me"); history.push({role:"user",content:text});
+  const out=bubble("","bot"); out.classList.add("cursor"); $("#send").disabled=true;
+  let acc="", tps=null;
+  try {
+    const r=await fetch("/api/assistant",{ method:"POST",
+      headers:{ "content-type":"application/json", ...( $("#token").value.trim() ? { authorization:"Bearer "+$("#token").value.trim() } : {} ) },
+      body: JSON.stringify({ message:text, history:history.slice(0,-1) }) });
+    if(!r.ok){ const e=await r.json().catch(()=>({})); out.textContent="⚠ "+(e.error||r.status); out.className="msg sys"; }
+    else {
+      const reader=r.body.getReader(), dec=new TextDecoder(); let buf="";
+      for(;;){ const {value,done}=await reader.read(); if(done) break;
+        buf+=dec.decode(value,{stream:true});
+        let i; while((i=buf.indexOf("\n\n"))>=0){ const line=buf.slice(0,i).trim(); buf=buf.slice(i+2);
+          if(!line.startsWith("data:")) continue; const o=JSON.parse(line.slice(5).trim());
+          if(o.t){ acc+=o.t; out.textContent=acc; log.scrollTop=log.scrollHeight; }
+          if(o.error){ out.textContent="⚠ "+o.error; out.className="msg sys"; }
+          if(o.done) tps=o.tps; } }
+      out.classList.remove("cursor");
+      if(acc){ const m=document.createElement("div"); m.className="meta"; m.textContent=(tps?tps+" tok/s":""); out.appendChild(m); history.push({role:"assistant",content:acc}); }
+    }
+  } catch(err){ out.textContent="⚠ "+err.message; out.className="msg sys"; }
+  finally{ out.classList.remove("cursor"); $("#send").disabled=false; box.focus(); }
+});
+loadState(); setInterval(loadState,5000);
+sysline("เชื่อมต่อแล้ว — วาง JWT แล้วลองถามข้อมูลจริง (เว้นว่าง = โหมด guest)");
+</script>
+</body>
+</html>
