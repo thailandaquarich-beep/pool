@@ -52,3 +52,8 @@ Thumbs.db
 data/
 backups/
 .run-logs/
+
+# Box-local sync tooling (Windows-specific; N2 doesn't need it)
+sync/
+aquarich_pooledit_sync_packet/
+aquarich_pooledit_sync_packet.zip
