@@ -1,17 +1,17 @@
 import { FC, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { Bell, Calendar, Wallet, MessageCircle, Megaphone, Check } from "lucide-react";
+import { Bell, Calendar, Wallet, MessageCircle, Megaphone, Check, ShoppingBag } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 type Notif = {
-  id: string; kind: "announcement" | "reservation" | "topup" | "chat";
+  id: string; kind: "announcement" | "reservation" | "topup" | "chat" | "order";
   level: "info" | "success" | "warning" | "maintenance"; title: string; body: string;
   at: string; href: string | null; pinned?: boolean;
 };
 
 const SEEN_KEY = "notif_last_seen";
-const kindIcon = { announcement: Megaphone, reservation: Calendar, topup: Wallet, chat: MessageCircle } as const;
+const kindIcon = { announcement: Megaphone, reservation: Calendar, topup: Wallet, chat: MessageCircle, order: ShoppingBag } as const;
 const levelColor: Record<string, string> = {
   info: "text-sky-500", success: "text-emerald-500", warning: "text-amber-500", maintenance: "text-rose-500",
 };

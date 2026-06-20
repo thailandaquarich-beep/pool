@@ -5,7 +5,7 @@
 import { Router } from "express";
 import {
   db, announcementsTable, reservationsTable, topupRequestsTable,
-  chatTicketsTable, chatMessagesTable, instructorsTable, usersTable,
+  chatTicketsTable, chatMessagesTable, instructorsTable, usersTable, ordersTable,
 } from "@workspace/db";
 import { eq, and, desc, gte, ne } from "drizzle-orm";
 import { authenticate } from "../middlewares/auth.js";
@@ -13,7 +13,7 @@ import { authenticate } from "../middlewares/auth.js";
 const router = Router();
 
 type Notif = {
-  id: string; kind: "announcement" | "reservation" | "topup" | "chat";
+  id: string; kind: "announcement" | "reservation" | "topup" | "chat" | "order";
   level: "info" | "success" | "warning" | "maintenance"; title: string; body: string;
   at: string; href: string | null; pinned?: boolean;
 };
@@ -55,6 +55,13 @@ async function buildNotifications(user: { userId: number; role: string }): Promi
       items.push({ id: `achat-${m.ticketId}-${m.id}`, kind: "chat", level: "info", title: "ข้อความใหม่จากสมาชิก",
         body: (m.message || "").slice(0, 80), at: m.createdAt.toISOString(), href: "/admin/chat" });
     }
+
+    // new shop orders awaiting review (slip check / shipping)
+    const pendOrders = await db.select().from(ordersTable)
+      .where(eq(ordersTable.status, "pending")).orderBy(desc(ordersTable.createdAt)).limit(15);
+    for (const o of pendOrders)
+      items.push({ id: `aorder-${o.id}`, kind: "order", level: "warning", title: "คำสั่งซื้อใหม่ รอตรวจสอบ",
+        body: `#${o.id} · ${o.recipientName} · ${baht(o.subtotal)} บาท`, at: o.createdAt.toISOString(), href: "/admin/orders" });
   } else {
     const uid = user.userId;
     // reservation status changes (recent)
@@ -78,6 +85,20 @@ async function buildNotifications(user: { userId: number; role: string }): Promi
         title: t.status === "approved" ? "เติมเงินสำเร็จ" : "คำขอเติมเงินถูกปฏิเสธ",
         body: `${baht(t.amount)} บาท${t.reviewNote ? ` · ${t.reviewNote}` : ""}`,
         at: t.reviewedAt.toISOString(), href: "/wallet" });
+    }
+    // shop order status updates (paid / shipped / cancelled)
+    const myOrders = await db.select().from(ordersTable)
+      .where(eq(ordersTable.userId, uid)).orderBy(desc(ordersTable.createdAt)).limit(10);
+    for (const o of myOrders) {
+      if (o.status === "paid")
+        items.push({ id: `order-${o.id}-paid`, kind: "order", level: "success", title: "ยืนยันการชำระเงินแล้ว",
+          body: `คำสั่งซื้อ #${o.id} · ${baht(o.subtotal)} บาท`, at: (o.paidAt ?? o.createdAt).toISOString(), href: "/my-orders" });
+      else if (o.status === "shipped")
+        items.push({ id: `order-${o.id}-shipped`, kind: "order", level: "info", title: "คำสั่งซื้อจัดส่งแล้ว",
+          body: `#${o.id}${o.trackingNo ? ` · พัสดุ ${o.trackingNo}` : ""}`, at: (o.shippedAt ?? o.createdAt).toISOString(), href: "/my-orders" });
+      else if (o.status === "cancelled")
+        items.push({ id: `order-${o.id}-cancelled`, kind: "order", level: "warning", title: "คำสั่งซื้อถูกยกเลิก",
+          body: `#${o.id} · ${baht(o.subtotal)} บาท`, at: o.createdAt.toISOString(), href: "/my-orders" });
     }
     // latest staff/AI reply per ticket
     const myTickets = await db.select().from(chatTicketsTable)
