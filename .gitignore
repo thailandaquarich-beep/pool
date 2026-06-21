@@ -57,3 +57,6 @@ backups/
 sync/
 aquarich_pooledit_sync_packet/
 aquarich_pooledit_sync_packet.zip
+
+# Sovereign OS partner-node agent seed (WIRE-2, D-S-ARCH241) — OS infra, not Pooledit code
+CLAUDE.md
