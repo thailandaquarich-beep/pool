@@ -10,6 +10,47 @@ const router = Router();
 
 const isDev = (role?: string) => role === "super_admin";
 
+// ── Sovereign OS (N2) mirror ────────────────────────────────────────────────
+// A Pooledit dev-support ticket is mirrored to N2's cross-channel ticket inbox so it
+// converges with LINE-filed tickets, auto-forwards to the CTO, and acks the filer.
+// Env-gated + best-effort: set N2_TICKET_URL (e.g. http://100.101.158.77:8500/api/v1/ticket).
+const N2_TICKET_URL = process.env.N2_TICKET_URL || "";
+
+// Pooledit role → N2 principal_id (D-S-ARCH242 subusers). super_admin = founder (build+fix),
+// admin = admin (fix only). N2 enforces ticket_scope; unknown roles fall through unmirrored.
+function n2PrincipalForRole(role?: string): string {
+  if (role === "super_admin") return "aquarich-founder";
+  if (role === "admin") return "aquarich-admin";
+  return "";
+}
+
+// Pooledit type → N2 kind. "feature" = net-new = build; everything else = fix.
+function n2KindForType(type?: string): "fix" | "build" {
+  return type === "feature" ? "build" : "fix";
+}
+
+function mirrorTicketToN2(role: string | undefined, subject: string, message: string,
+                          type?: string, priority?: string): void {
+  if (!N2_TICKET_URL) return;
+  const filer_id = n2PrincipalForRole(role);
+  if (!filer_id) return;
+  const body = {
+    filer_id, subject, body: message, filer_domain: "cbo",
+    kind: n2KindForType(type), priority: priority || "normal", source: "pooledit",
+  };
+  // fire-and-forget: never block or fail the Pooledit response on N2 reachability
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  fetch(N2_TICKET_URL, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body), signal: ctrl.signal,
+  }).then((r) => {
+    if (!r.ok) console.warn(`[devSupport] N2 mirror non-OK: ${r.status}`);
+  }).catch((e) => {
+    console.warn(`[devSupport] N2 mirror failed (best-effort): ${e?.message || e}`);
+  }).finally(() => clearTimeout(timer));
+}
+
 function ticketJson(t: typeof devTicketsTable.$inferSelect) {
   return {
     ...t,
@@ -39,6 +80,12 @@ router.post("/tickets", authenticate, requireAdmin, async (req, res) => {
       imageUrl: imageUrl || null,
       fromDev: false,
     }).returning();
+
+    // Mirror to the Sovereign OS (N2) dev-support inbox so it lands in the single
+    // cross-channel store, auto-forwards to the CTO, and acks the filer on LINE.
+    // Fire-and-forget + best-effort: a Pooledit ticket must succeed even if N2 is
+    // unreachable (Tailscale-only box). N2_TICKET_URL gates the call (unset = skip).
+    mirrorTicketToN2(req.user!.role, subject, message, type, priority);
 
     return res.status(201).json({
       ticket: ticketJson(ticket),
