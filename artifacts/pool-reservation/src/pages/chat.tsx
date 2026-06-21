@@ -11,9 +11,10 @@ import { useToast } from "@/hooks/use-toast";
 import { MessageCircle, Plus, Send, ArrowLeft, Clock } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
+import { MemberAvatar } from "@/components/member-avatar";
 
 type Ticket = { id: number; subject: string; type: string; status: string; createdAt: string; updatedAt: string; messageCount: number; user?: any };
-type Message = { id: number; ticketId: number; message: string; isAdminMessage: boolean; createdAt: string; sender: { firstName: string; lastName: string; role: string } };
+type Message = { id: number; ticketId: number; message: string; isAdminMessage: boolean; createdAt: string; sender: { firstName: string; lastName: string; role: string; profileImageUrl?: string | null } };
 
 const statusColor: Record<string, string> = {
   open: "bg-blue-100 text-blue-700",
@@ -132,7 +133,10 @@ export const ChatPage: FC = () => {
         {messages.map(msg => {
           const isMe = (!isAdmin && !msg.isAdminMessage) || (isAdmin && msg.isAdminMessage);
           return (
-            <div key={msg.id} className={cn("flex", isMe ? "justify-end" : "justify-start")}>
+            <div key={msg.id} className={cn("flex items-end gap-2", isMe ? "justify-end" : "justify-start")}>
+              {!isMe && !msg.isAdminMessage && (
+                <MemberAvatar firstName={msg.sender.firstName} lastName={msg.sender.lastName} src={msg.sender.profileImageUrl} className="w-7 h-7 text-[10px] mb-1" />
+              )}
               <div className={cn("max-w-[75%] rounded-2xl px-4 py-2 text-sm", isMe ? "bg-primary text-white rounded-br-sm" : "bg-muted rounded-bl-sm")}>
                 {!isMe && <p className="text-xs font-medium opacity-70 mb-1">{msg.isAdminMessage ? (msg.sender.firstName === "น้องอควา" ? "น้องอควา 🤖 (ผู้ช่วย AI)" : "ทีมงาน") : `${msg.sender.firstName} ${msg.sender.lastName}`}</p>}
                 <p className="leading-relaxed whitespace-pre-wrap">{msg.message}</p>
@@ -207,6 +211,9 @@ export const ChatPage: FC = () => {
         ) : tickets.map(ticket => (
           <Card key={ticket.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => { setActiveTicket(ticket); }}>
             <CardContent className="p-4 flex items-center gap-3">
+              {isAdmin && ticket.user && (
+                <MemberAvatar firstName={ticket.user.firstName} lastName={ticket.user.lastName} src={ticket.user.profileImageUrl} className="w-10 h-10 text-sm" />
+              )}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-medium truncate">{ticket.subject}</p>

@@ -1,10 +1,12 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { db, usersTable, memberPackagesTable, membershipPackagesTable } from "@workspace/db";
+import { db, usersTable, memberPackagesTable, membershipPackagesTable, packageUsagesTable, reservationsTable } from "@workspace/db";
 import { eq, or, ilike, sql, and, inArray } from "drizzle-orm";
 import { authenticate, requireAdmin, isAdminRole } from "../middlewares/auth.js";
+import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
 import { backupUsers, formatBackupUser } from "../lib/backup.js";
 import { memberCode } from "../lib/memberCode.js";
+import { initMemberFolder } from "../lib/memberLog.js";
 
 const router = Router();
 
@@ -13,31 +15,76 @@ function formatUser(user: typeof usersTable.$inferSelect) {
   return { ...rest, memberCode: memberCode(user.id), createdAt: rest.createdAt.toISOString() };
 }
 
+// GET /users/me/stats — the signed-in member's own swim activity stats.
+// Each package_usage row is one visit (a confirmed booking or a walk-in check-in);
+// swim time is the booked slot duration, or a default session length for walk-ins.
+const DEFAULT_SESSION_MIN = 60;
+const toMinutes = (t: string) => { const [h, m] = t.split(":").map(Number); return (h || 0) * 60 + (m || 0); };
+
+router.get("/me/stats", authenticate, async (req, res) => {
+  try {
+    const uid = req.user!.userId;
+    const rows = await db
+      .select({
+        source: packageUsagesTable.source,
+        createdAt: packageUsagesTable.createdAt,
+        startTime: reservationsTable.startTime,
+        endTime: reservationsTable.endTime,
+      })
+      .from(packageUsagesTable)
+      .leftJoin(reservationsTable, eq(packageUsagesTable.reservationId, reservationsTable.id))
+      .where(eq(packageUsagesTable.userId, uid));
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    let totalMinutes = 0, visitsThisMonth = 0, bookingVisits = 0, checkinVisits = 0;
+    let lastVisit: Date | null = null;
+    for (const r of rows) {
+      totalMinutes += r.startTime && r.endTime
+        ? Math.max(0, toMinutes(r.endTime) - toMinutes(r.startTime))
+        : DEFAULT_SESSION_MIN;
+      if (r.source === "checkin") checkinVisits++; else bookingVisits++;
+      if (r.createdAt >= monthStart) visitsThisMonth++;
+      if (!lastVisit || r.createdAt > lastVisit) lastVisit = r.createdAt;
+    }
+    return res.json({
+      totalVisits: rows.length,
+      totalMinutes,
+      visitsThisMonth,
+      bookingVisits,
+      checkinVisits,
+      lastVisit: lastVisit ? lastVisit.toISOString() : null,
+    });
+  } catch {
+    return res.status(500).json({ error: "Failed to get stats" });
+  }
+});
+
 // GET /users — admin only
-router.get("/", authenticate, requireAdmin, async (req, res) => {
+router.get("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
     const search = req.query.search as string | undefined;
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(100, parseInt(req.query.limit as string) || 20);
     const offset = (page - 1) * limit;
 
-    let query = db.select().from(usersTable);
-
-    if (search) {
-      query = query.where(
-        or(
-          ilike(usersTable.firstName, `%${search}%`),
-          ilike(usersTable.lastName, `%${search}%`),
-          ilike(usersTable.email, `%${search}%`),
-          ilike(usersTable.username, `%${search}%`),
-          ilike(usersTable.houseNumber, `%${search}%`)
-        )
-      ) as typeof query;
-    }
+    // Branch scope: super_admin (all) → undefined; branch admin → only their branch.
+    const where = and(
+      branchEq(req, usersTable.branchId),
+      search
+        ? or(
+            ilike(usersTable.firstName, `%${search}%`),
+            ilike(usersTable.lastName, `%${search}%`),
+            ilike(usersTable.email, `%${search}%`),
+            ilike(usersTable.username, `%${search}%`),
+            ilike(usersTable.houseNumber, `%${search}%`)
+          )
+        : undefined
+    );
 
     // Ordered by id ascending so member numbers (ART00001, ART00002, …) appear in order.
-    const users = await query.orderBy(usersTable.id).limit(limit).offset(offset);
-    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(usersTable);
+    const users = await db.select().from(usersTable).where(where).orderBy(usersTable.id).limit(limit).offset(offset);
+    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(usersTable).where(where);
 
     // Enrich each user with their active package's remaining uses + days left.
     const ids = users.map((u) => u.id);
@@ -84,7 +131,7 @@ router.get("/", authenticate, requireAdmin, async (req, res) => {
 });
 
 // POST /users — admin only
-router.post("/", authenticate, requireAdmin, async (req, res) => {
+router.post("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
     const { firstName, lastName, houseNumber, weight, height, phone, email, username, password, role } = req.body;
 
@@ -105,11 +152,15 @@ router.post("/", authenticate, requireAdmin, async (req, res) => {
         firstName, lastName, houseNumber: houseNumber || null, phone, email, username, passwordHash, role: role || "member",
         weight: weight != null && weight !== "" ? Number(weight) : null,
         height: height != null && height !== "" ? Number(height) : null,
+        branchId: newRowBranch(req),
       })
       .returning();
 
     const users = await db.select().from(usersTable);
     await backupUsers(users);
+
+    // New member code created by admin -> set up their personal folder + logs.
+    await initMemberFolder(user, "admin_create");
 
     return res.status(201).json(formatUser(user));
   } catch {
@@ -186,10 +237,14 @@ router.post("/:id/reset-password", authenticate, requireAdmin, async (req, res) 
     const id = parseInt(req.params.id);
     const { newPassword } = req.body;
 
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid user id" });
     if (!newPassword) return res.status(400).json({ error: "New password is required" });
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
-    await db.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, id));
+    // Scope strictly to this one user, and confirm a row actually changed so we
+    // never report success for a non-existent id.
+    const updated = await db.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, id)).returning({ id: usersTable.id });
+    if (updated.length === 0) return res.status(404).json({ error: "User not found" });
 
     return res.json({ message: "Password reset successfully" });
   } catch {

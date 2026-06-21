@@ -37,6 +37,18 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+// Staff = anyone who works here (admins + instructors + employees). Used by the attendance system.
+export function isStaffRole(role?: string): boolean {
+  return role === "admin" || role === "super_admin" || role === "instructor" || role === "staff";
+}
+
+export function requireStaff(req: Request, res: Response, next: NextFunction) {
+  if (!req.user || !isStaffRole(req.user.role)) {
+    return res.status(403).json({ error: "Forbidden: staff only" });
+  }
+  next();
+}
+
 export function optionalAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {

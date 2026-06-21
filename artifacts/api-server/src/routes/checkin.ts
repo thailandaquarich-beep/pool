@@ -1,11 +1,13 @@
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { db, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth.js";
+import { attachBranch, branchEq } from "../middlewares/branch.js";
 import { getActiveUsages, pickUsable, consumeUse, NoQuotaError } from "../lib/packageUsage.js";
 import { logUsage } from "../lib/usageLog.js";
 import { memberCode } from "../lib/memberCode.js";
+import { appendMemberLog } from "../lib/memberLog.js";
 
 const router = Router();
 
@@ -36,11 +38,12 @@ router.get("/my-code", authenticate, async (req, res) => {
 });
 
 // GET /checkin/lookup?token= — admin: preview member + remaining BEFORE deducting.
-router.get("/lookup", authenticate, requireAdmin, async (req, res) => {
+router.get("/lookup", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
     const token = ((req.query.token as string) || "").trim();
     if (!token) return res.status(400).json({ error: "token required" });
-    const [u] = await db.select().from(usersTable).where(eq(usersTable.checkinToken, token)).limit(1);
+    // Branch-confine the scan: a branch admin can't look up another branch's member.
+    const [u] = await db.select().from(usersTable).where(and(eq(usersTable.checkinToken, token), branchEq(req, usersTable.branchId))).limit(1);
     if (!u) return res.status(404).json({ error: "ไม่พบสมาชิกจาก QR นี้" });
     const usages = await getActiveUsages(db, u.id);
     const usable = pickUsable(usages);
@@ -57,11 +60,11 @@ router.get("/lookup", authenticate, requireAdmin, async (req, res) => {
 });
 
 // POST /checkin — admin: scan a member QR token -> deduct one use (walk-in check-in).
-router.post("/", authenticate, requireAdmin, async (req, res) => {
+router.post("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
     const token = ((req.body.token as string) || "").trim();
     if (!token) return res.status(400).json({ error: "token required" });
-    const [u] = await db.select().from(usersTable).where(eq(usersTable.checkinToken, token)).limit(1);
+    const [u] = await db.select().from(usersTable).where(and(eq(usersTable.checkinToken, token), branchEq(req, usersTable.branchId))).limit(1);
     if (!u) return res.status(404).json({ error: "ไม่พบสมาชิกจาก QR นี้" });
 
     let consumed;
@@ -81,6 +84,14 @@ router.post("/", authenticate, requireAdmin, async (req, res) => {
       source: "checkin",
       packageName: consumed.package.name,
       detail: "สแกน QR เช็คอินหน้างาน",
+    });
+
+    await appendMemberLog({ userId: u.id }, "checkins", {
+      event: "checkin",
+      method: "qr_scan",
+      name: `${u.firstName} ${u.lastName}`,
+      packageName: consumed.package.name,
+      remainingAfter: consumed.remainingAfter,
     });
 
     return res.json({

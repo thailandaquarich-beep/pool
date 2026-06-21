@@ -26,6 +26,7 @@ export const transactionsTable = pgTable("transactions", {
   status: transactionStatusEnum("status").notNull().default("completed"),
   referenceId: integer("reference_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  branchId: integer("branch_id").default(1),
 });
 
 export type Transaction = typeof transactionsTable.$inferSelect;

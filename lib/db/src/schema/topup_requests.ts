@@ -16,6 +16,7 @@ export const topupRequestsTable = pgTable("topup_requests", {
   reviewNote: text("review_note"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  branchId: integer("branch_id").default(1),
 });
 
 export type TopupRequest = typeof topupRequestsTable.$inferSelect;

@@ -1,4 +1,4 @@
-import { FC, useState, useRef } from "react";
+import { FC, useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useTranslation } from "@/i18n";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,10 +29,10 @@ export const Topup: FC = () => {
   const [success, setSuccess] = useState(false);
   const [settings, setSettings] = useState<any>(null);
 
-  useState(() => {
+  useEffect(() => {
     fetch(`${baseUrl}/api/settings`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(setSettings).catch(() => {});
-  });
+  }, []);
 
   const presets = [100, 200, 500, 1000, 2000, 5000];
 

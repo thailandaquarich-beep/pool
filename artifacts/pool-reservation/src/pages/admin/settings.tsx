@@ -157,7 +157,7 @@ export function AdminSettings() {
 
       {/* Operating Hours */}
       <Section icon={<Clock className="w-4 h-4" />} title="เวลาทำการ" description="กำหนดเวลาเปิด-ปิดของสระว่ายน้ำ">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Field label="เวลาเปิด" hint="เวลาเริ่มรับการจอง">
             <Input type="time" value={form.openTime} onChange={e => set("openTime", e.target.value)} data-testid="open-time" />
           </Field>
@@ -175,7 +175,7 @@ export function AdminSettings() {
 
       {/* Capacity */}
       <Section icon={<Users className="w-4 h-4" />} title="ความจุและข้อจำกัด" description="กำหนดจำนวนคนสูงสุดและการจองล่วงหน้า">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Field label="คนสูงสุดต่อช่วงเวลา" hint="จำนวนคนสูงสุดในแต่ละ session">
             <div className="flex items-center gap-3">
               <Input type="number" min={1} max={200} value={form.maxPeoplePerSlot} onChange={e => set("maxPeoplePerSlot", parseInt(e.target.value) || 20)} className="max-w-[140px]" data-testid="max-people" />
@@ -199,7 +199,7 @@ export function AdminSettings() {
             <span className="text-sm text-muted-foreground">บาท</span>
           </div>
         </Field>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Field label="ชื่อธนาคาร">
             <Input value={form.bankName} onChange={e => set("bankName", e.target.value)} placeholder="ธนาคารกสิกรไทย" />
           </Field>
@@ -220,7 +220,7 @@ export function AdminSettings() {
         <Field label="LINE Official URL" hint="ลิงก์ไปยัง LINE Official Account — ปุ่ม LINE จะแสดงเมื่อมี URL">
           <Input value={form.lineUrl} onChange={e => set("lineUrl", e.target.value)} placeholder="https://line.me/R/ti/p/@xxx" />
         </Field>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Field label="เบอร์โทรติดต่อ">
             <Input value={form.contactPhone} onChange={e => set("contactPhone", e.target.value)} placeholder="02-xxx-xxxx" />
           </Field>

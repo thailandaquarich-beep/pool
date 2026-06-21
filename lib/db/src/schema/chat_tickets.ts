@@ -25,6 +25,7 @@ export const chatTicketsTable = pgTable("chat_tickets", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   closedAt: timestamp("closed_at", { withTimezone: true }),
+  branchId: integer("branch_id").default(1),
 });
 
 export type ChatTicket = typeof chatTicketsTable.$inferSelect;

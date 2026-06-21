@@ -7,6 +7,7 @@ export const walletsTable = pgTable("wallets", {
   balance: numeric("balance", { precision: 12, scale: 2 }).notNull().default("0"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  branchId: integer("branch_id").default(1),
 });
 
 export type Wallet = typeof walletsTable.$inferSelect;

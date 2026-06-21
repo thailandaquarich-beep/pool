@@ -5,7 +5,7 @@ import { useTranslation } from "@/i18n";
 import {
   LayoutDashboard, CalendarDays, CalendarPlus, Calendar, User,
   Settings, Users, LogOut, Droplets, Building2, GraduationCap,
-  Bell, Wallet, CreditCard, Crown, MessageCircle, QrCode, ScanLine, ShoppingBag, Bot, Package, Sparkles,
+  Bell, Wallet, CreditCard, Crown, MessageCircle, QrCode, ScanLine, ShoppingBag, Bot, Package, Sparkles, Palette, LifeBuoy, Clock, TrendingUp, CalendarOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -14,12 +14,14 @@ import { BrandMark } from "@/components/brand";
 
 export const Sidebar: FC = () => {
   const [location] = useLocation();
-  const { user, isAdmin, isInstructor, logout } = useAuth();
+  const { user, isAdmin, isInstructor, isStaff, logout } = useAuth();
   const { t } = useTranslation();
   const token = localStorage.getItem("pool_token");
   const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, "");
   const [unreadChat, setUnreadChat] = useState(0);
   const [pendingOrders, setPendingOrders] = useState(0);
+  const [devUnread, setDevUnread] = useState(0);
+  const [leavePending, setLeavePending] = useState(0);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -28,6 +30,10 @@ export const Sidebar: FC = () => {
         .then(r => r.json()).then(d => setUnreadChat(d.unreadCount || 0)).catch(() => {});
       fetch(`${baseUrl}/api/orders/admin/pending-count`, { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.json()).then(d => setPendingOrders(d.count || 0)).catch(() => {});
+      fetch(`${baseUrl}/api/dev-support/unread`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json()).then(d => setDevUnread(d.unreadCount || 0)).catch(() => {});
+      fetch(`${baseUrl}/api/leave/pending-count`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json()).then(d => setLeavePending(d.count || 0)).catch(() => {});
     };
     fetchCounts();
     const iv = setInterval(fetchCounts, 30000);
@@ -42,7 +48,7 @@ export const Sidebar: FC = () => {
     { href: "/membership-card", label: "บัตรสมาชิก", icon: QrCode },
     { href: "/wallet", label: t("nav.wallet"), icon: Wallet },
     { href: "/packages", label: t("nav.packages"), icon: Crown },
-    { href: "/products", label: "ผลิตภัณฑ์", icon: ShoppingBag },
+    { href: "/products", label: "ร้านค้าสโมสร", icon: ShoppingBag },
     { href: "/my-orders", label: "คำสั่งซื้อของฉัน", icon: Package },
     { href: "/services", label: "บริการอื่นๆ", icon: Sparkles },
     { href: "/chat", label: t("nav.chat"), icon: MessageCircle },
@@ -51,6 +57,10 @@ export const Sidebar: FC = () => {
 
   const adminLinks = [
     { href: "/admin", label: t("nav.admin.dashboard"), icon: LayoutDashboard },
+    ...((user as any)?.role === "super_admin" ? [
+      { href: "/admin/overview", label: "ภาพรวมทุกสาขา", icon: TrendingUp },
+      { href: "/admin/branches", label: "จัดการสาขา", icon: Building2 },
+    ] : []),
     { href: "/admin/reservations", label: t("nav.admin.reservations"), icon: CalendarDays },
     { href: "/admin/members", label: t("nav.admin.members"), icon: Users },
     { href: "/admin/facilities", label: t("nav.admin.facilities"), icon: Building2 },
@@ -62,16 +72,30 @@ export const Sidebar: FC = () => {
     { href: "/admin/products", label: "ผลิตภัณฑ์", icon: ShoppingBag },
     { href: "/admin/orders", label: "คำสั่งซื้อ", icon: Package, badge: pendingOrders > 0 ? pendingOrders : undefined },
     { href: "/admin/chat", label: t("nav.admin.chat"), icon: MessageCircle, badge: unreadChat > 0 ? unreadChat : undefined },
-    { href: "/admin/ai-chat", label: "วิเคราะห์แชท AI", icon: Bot },
+    // AI chat analytics span every branch (flat logs), so only the franchise owner sees them.
+    ...((user as any)?.role === "super_admin" ? [{ href: "/admin/ai-chat", label: "วิเคราะห์แชท AI", icon: Bot }] : []),
+    { href: "/admin/theme", label: "ธีมสีเว็บไซต์", icon: Palette },
+    { href: "/admin/help", label: "ศูนย์ช่วยเหลือ", icon: LifeBuoy, badge: devUnread > 0 ? devUnread : undefined },
+    { href: "/admin/attendance", label: "ลงเวลา/กะพนักงาน", icon: Clock },
+    { href: "/admin/leave", label: "คำขอลาพนักงาน", icon: CalendarOff, badge: leavePending > 0 ? leavePending : undefined },
     { href: "/admin/settings", label: t("nav.admin.settings"), icon: Settings },
   ];
 
   const instructorLinks = [
     { href: "/instructor/schedule", label: "ตารางสอนของฉัน", icon: CalendarDays },
+    { href: "/attendance", label: "ลงเวลางาน", icon: Clock },
+    { href: "/leave", label: "การลา", icon: CalendarOff },
     ...memberLinks,
   ];
 
-  const links = isAdmin ? adminLinks : isInstructor ? instructorLinks : memberLinks;
+  // Employees (staff) — clock in/out, leave, and their own profile.
+  const staffLinks = [
+    { href: "/attendance", label: "ลงเวลางาน", icon: Clock },
+    { href: "/leave", label: "การลา", icon: CalendarOff },
+    { href: "/profile", label: t("nav.profile"), icon: User },
+  ];
+
+  const links = isAdmin ? adminLinks : isInstructor ? instructorLinks : isStaff ? staffLinks : memberLinks;
   const initials = user ? `${user.firstName?.[0] || ""}${user.lastName?.[0] || ""}`.toUpperCase() : "U";
   const avatarUrl = (user as any)?.profileImageUrl;
 
@@ -82,7 +106,7 @@ export const Sidebar: FC = () => {
       </div>
 
       <nav className="flex-1 p-4 space-y-0.5 overflow-y-auto">
-        <div className="text-xs font-semibold text-muted-foreground mb-3 px-3">{isAdmin ? "ADMIN" : isInstructor ? "INSTRUCTOR" : "MEMBER"}</div>
+        <div className="text-xs font-semibold text-muted-foreground mb-3 px-3">{isAdmin ? "ADMIN" : isInstructor ? "INSTRUCTOR" : isStaff ? "พนักงาน" : "MEMBER"}</div>
         {links.map((link) => {
           const isActive = location === link.href;
           const Icon = link.icon;

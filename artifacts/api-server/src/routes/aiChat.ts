@@ -1,13 +1,23 @@
 import { Router } from "express";
 import fs from "fs/promises";
 import path from "path";
-import { db, aiChatMessagesTable } from "@workspace/db";
-import { eq, asc } from "drizzle-orm";
-import { authenticate, requireAdmin } from "../middlewares/auth.js";
+import { db, aiChatMessagesTable, usersTable } from "@workspace/db";
+import { eq, asc, inArray } from "drizzle-orm";
+import { authenticate } from "../middlewares/auth.js";
+import type { Request, Response, NextFunction } from "express";
 import { dataDirs } from "../lib/dataPaths.js";
+import { appendMemberLog } from "../lib/memberLog.js";
 
 const router = Router();
-router.use(authenticate); // every route needs a signed-in user; admin routes add requireAdmin
+router.use(authenticate); // every route needs a signed-in user; admin routes add requireSuperAdmin
+
+// The AI chat logs are flat JSONL files with no branch dimension, so they can't be
+// branch-filtered. Restrict cross-customer analytics to super_admin (franchise owner)
+// rather than leak every branch's conversations to a single-branch admin.
+function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
+  if (req.user?.role !== "super_admin") return res.status(403).json({ error: "Forbidden: super admin only" });
+  next();
+}
 
 const HISTORY_MAX = 50;
 
@@ -36,6 +46,7 @@ router.post("/turn", async (req, res) => {
       { userId: req.user!.userId, role: "user", content: message },
       { userId: req.user!.userId, role: "assistant", content: reply },
     ]);
+    await appendMemberLog({ userId: req.user!.userId }, "ai-chat", { message, reply });
     return res.status(201).json({ ok: true });
   } catch {
     return res.status(500).json({ error: "Failed to save chat turn" });
@@ -77,7 +88,7 @@ async function readAllEntries(): Promise<Entry[]> {
 }
 
 // GET /ai-chat/analytics — aggregated view of what customers want + escalations
-router.get("/analytics", requireAdmin, async (_req, res) => {
+router.get("/analytics", requireSuperAdmin, async (_req, res) => {
   try {
     const entries = await readAllEntries();
     const byIntent: Record<string, number> = {};
@@ -102,8 +113,17 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
       customers.set(key, c);
     }
 
+    // The JSONL logs don't store avatars — enrich from the users table by userId.
+    const userIds = [...customers.values()].map((c) => c.userId).filter((x): x is number => typeof x === "number");
+    const avatarById = new Map<number, string | null>();
+    if (userIds.length) {
+      const rows = await db.select({ id: usersTable.id, img: usersTable.profileImageUrl }).from(usersTable).where(inArray(usersTable.id, userIds));
+      for (const r of rows) avatarById.set(r.id, r.img);
+    }
+
     const customerList = [...customers.values()].map((c) => ({
       ...c,
+      profileImageUrl: c.userId != null ? avatarById.get(c.userId) ?? null : null,
       topIntent: Object.entries(c.intents).sort((a: any, b: any) => b[1] - a[1])[0]?.[0] ?? "general",
     })).sort((a, b) => (Number(b.escalated) - Number(a.escalated)) || b.lastAt.localeCompare(a.lastAt));
 
@@ -120,7 +140,7 @@ router.get("/analytics", requireAdmin, async (_req, res) => {
 });
 
 // GET /ai-chat/conversation/:userId — full conversation of one customer
-router.get("/conversation/:userId", requireAdmin, async (req, res) => {
+router.get("/conversation/:userId", requireSuperAdmin, async (req, res) => {
   try {
     const file = path.join(dataDirs.chatLogs, "users", `${path.basename(req.params.userId)}.jsonl`);
     let text = "";

@@ -7,8 +7,9 @@ import {
   db, announcementsTable, reservationsTable, topupRequestsTable,
   chatTicketsTable, chatMessagesTable, instructorsTable, usersTable, ordersTable,
 } from "@workspace/db";
-import { eq, and, desc, gte, ne } from "drizzle-orm";
+import { eq, and, desc, gte, ne, inArray } from "drizzle-orm";
 import { authenticate } from "../middlewares/auth.js";
+import { attachBranch } from "../middlewares/branch.js";
 
 const router = Router();
 
@@ -20,14 +21,17 @@ type Notif = {
 
 const baht = (n: unknown) => Number(n).toLocaleString("th-TH");
 
-async function buildNotifications(user: { userId: number; role: string }): Promise<Notif[]> {
+// `branchId` is the viewer's branch scope (null = super_admin spanning every branch).
+async function buildNotifications(user: { userId: number; role: string }, branchId: number | null): Promise<Notif[]> {
   const isAdmin = user.role === "admin" || user.role === "super_admin";
   const now = new Date();
   const items: Notif[] = [];
+  // Branch filter helper — undefined (no filter) when viewing all branches.
+  const bf = (col: any) => (branchId == null ? undefined : eq(col, branchId));
 
-  // Announcements (everyone)
+  // Announcements (everyone) — scoped to the viewer's branch
   const anns = await db.select().from(announcementsTable)
-    .where(eq(announcementsTable.isPublished, true))
+    .where(and(eq(announcementsTable.isPublished, true), bf(announcementsTable.branchId)))
     .orderBy(desc(announcementsTable.createdAt)).limit(20);
   for (const a of anns) {
     if (a.expiresAt && a.expiresAt < now) continue;
@@ -38,15 +42,20 @@ async function buildNotifications(user: { userId: number; role: string }): Promi
   if (isAdmin) {
     // pending topups
     const pend = await db.select().from(topupRequestsTable)
-      .where(eq(topupRequestsTable.status, "pending"))
+      .where(and(eq(topupRequestsTable.status, "pending"), bf(topupRequestsTable.branchId)))
       .orderBy(desc(topupRequestsTable.createdAt)).limit(15);
     for (const p of pend)
       items.push({ id: `atopup-${p.id}`, kind: "topup", level: "warning", title: "คำขอเติมเงินรออนุมัติ",
         body: `${baht(p.amount)} บาท`, at: p.createdAt.toISOString(), href: "/admin/wallet" });
 
-    // tickets with unread member messages
-    const unread = await db.select().from(chatMessagesTable)
-      .where(and(eq(chatMessagesTable.isAdminMessage, false), eq(chatMessagesTable.isRead, false)))
+    // tickets with unread member messages — scoped via the parent ticket's branch
+    const unread = await db.select({
+        id: chatMessagesTable.id, ticketId: chatMessagesTable.ticketId,
+        message: chatMessagesTable.message, createdAt: chatMessagesTable.createdAt,
+      })
+      .from(chatMessagesTable)
+      .innerJoin(chatTicketsTable, eq(chatMessagesTable.ticketId, chatTicketsTable.id))
+      .where(and(eq(chatMessagesTable.isAdminMessage, false), eq(chatMessagesTable.isRead, false), bf(chatTicketsTable.branchId)))
       .orderBy(desc(chatMessagesTable.createdAt)).limit(30);
     const seenTickets = new Set<number>();
     for (const m of unread) {
@@ -56,12 +65,14 @@ async function buildNotifications(user: { userId: number; role: string }): Promi
         body: (m.message || "").slice(0, 80), at: m.createdAt.toISOString(), href: "/admin/chat" });
     }
 
-    // new shop orders awaiting review (slip check / shipping)
+    // new shop orders awaiting admin action (pending = wait payment, paid = wait shipping)
     const pendOrders = await db.select().from(ordersTable)
-      .where(eq(ordersTable.status, "pending")).orderBy(desc(ordersTable.createdAt)).limit(15);
+      .where(and(inArray(ordersTable.status, ["pending", "paid"]), bf(ordersTable.branchId))).orderBy(desc(ordersTable.createdAt)).limit(15);
     for (const o of pendOrders)
-      items.push({ id: `aorder-${o.id}`, kind: "order", level: "warning", title: "คำสั่งซื้อใหม่ รอตรวจสอบ",
-        body: `#${o.id} · ${o.recipientName} · ${baht(o.subtotal)} บาท`, at: o.createdAt.toISOString(), href: "/admin/orders" });
+      items.push({ id: `aorder-${o.id}-${o.status}`, kind: "order", level: o.status === "paid" ? "success" : "warning",
+        title: o.status === "paid" ? "🛒 คำสั่งซื้อใหม่ ชำระแล้ว รอจัดส่ง" : "🛒 คำสั่งซื้อใหม่ รอตรวจสอบ",
+        body: `#${o.id} · ${o.recipientName} · ${baht(o.subtotal)} บาท`,
+        at: (o.paidAt ?? o.createdAt).toISOString(), href: "/admin/orders" });
   } else {
     const uid = user.userId;
     // reservation status changes (recent)
@@ -149,9 +160,9 @@ async function buildNotifications(user: { userId: number; role: string }): Promi
 }
 
 // GET /notifications — poll
-router.get("/", authenticate, async (req, res) => {
+router.get("/", authenticate, attachBranch, async (req, res) => {
   try {
-    const items = await buildNotifications(req.user!);
+    const items = await buildNotifications(req.user!, req.branchId ?? null);
     return res.json({ items, serverTime: new Date().toISOString() });
   } catch {
     return res.status(500).json({ error: "Failed to load notifications" });
@@ -159,11 +170,11 @@ router.get("/", authenticate, async (req, res) => {
 });
 
 // GET /notifications/stream — SSE push (consume via fetch+reader so the Bearer header works)
-router.get("/stream", authenticate, async (req, res) => {
+router.get("/stream", authenticate, attachBranch, async (req, res) => {
   res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
   const send = async () => {
     try {
-      const items = await buildNotifications(req.user!);
+      const items = await buildNotifications(req.user!, req.branchId ?? null);
       res.write(`data: ${JSON.stringify({ items, serverTime: new Date().toISOString() })}\n\n`);
     } catch { /* ignore one tick */ }
   };

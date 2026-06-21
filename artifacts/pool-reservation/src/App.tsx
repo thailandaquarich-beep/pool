@@ -6,9 +6,12 @@ import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { CartProvider } from "@/hooks/use-cart";
 import { LanguageProvider } from "@/i18n";
 import { ThemeProvider } from "@/hooks/use-theme";
+import { ThemeColorProvider } from "@/components/theme-color-provider";
 import { AppLayout } from "@/components/layout/app-layout";
+import { LandingPopup } from "@/components/LandingPopup";
 import NotFound from "@/pages/not-found";
 
+import { Landing } from "@/pages/landing";
 import { Login } from "@/pages/login";
 import { Register } from "@/pages/register";
 import { Dashboard } from "@/pages/dashboard";
@@ -29,6 +32,8 @@ import { Services } from "@/pages/services";
 import { Cart } from "@/pages/cart";
 import { MyOrders } from "@/pages/my-orders";
 import { ChatPage } from "@/pages/chat";
+import { Attendance } from "@/pages/attendance";
+import { LeavePage } from "@/pages/leave";
 
 import { AdminMembers } from "@/pages/admin/members";
 import { AdminReservations } from "@/pages/admin/reservations";
@@ -41,31 +46,52 @@ import { AdminPackagesManagement } from "@/pages/admin/packages-management";
 import { AdminProducts } from "@/pages/admin/products";
 import { AdminOrders } from "@/pages/admin/orders";
 import { AdminAiChat } from "@/pages/admin/ai-chat";
+import { AdminTheme } from "@/pages/admin/theme";
+import { AdminAttendance } from "@/pages/admin/attendance";
+import { AdminLeave } from "@/pages/admin/leave";
+import { AdminBranches } from "@/pages/admin/branches";
+import { AdminOverview } from "@/pages/admin/overview";
+import { AdminHelpCenter } from "@/pages/admin/help-center";
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+  defaultOptions: {
+    queries: {
+      retry: false,
+      // Keep data fresh "real-time": auto-refresh on focus and on a steady interval.
+      refetchOnWindowFocus: true,
+      refetchInterval: 30000, // poll every 30s while the tab is open
+      staleTime: 10000,
+    },
+  },
 });
 
-const ProtectedRoute = ({ component: Component, adminOnly = false, instructorOnly = false, allowInstructor = false, ...rest }: any) => {
-  const { isAuthenticated, isLoading, isAdmin, isInstructor } = useAuth();
+const ProtectedRoute = ({ component: Component, adminOnly = false, instructorOnly = false, staffOnly = false, allowInstructor = false, ...rest }: any) => {
+  const { isAuthenticated, isLoading, isAdmin, isInstructor, isStaff } = useAuth();
   if (isLoading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   if (!isAuthenticated) return <Redirect to="/" />;
   if (adminOnly && !isAdmin) return <Redirect to="/dashboard" />;
   if (instructorOnly && !isInstructor && !isAdmin) return <Redirect to="/dashboard" />;
+  // staffOnly = any worker (admin / instructor / employee) — e.g. the attendance clock
+  if (staffOnly && !isAdmin && !isInstructor && !isStaff) return <Redirect to="/dashboard" />;
   // instructors get the full member experience PLUS their teaching schedule (no confinement)
   if (!adminOnly && isAdmin && rest.path === "/dashboard") return <Redirect to="/admin" />;
+  // employees (staff) have no member dashboard — send them to their clock
+  if (isStaff && rest.path === "/dashboard") return <Redirect to="/attendance" />;
   return <Component />;
 };
 
 function Router() {
-  const { isAuthenticated, isLoading, isAdmin, isInstructor } = useAuth();
+  const { isAuthenticated, isLoading, isAdmin, isInstructor, isStaff } = useAuth();
   if (isLoading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
-  const home = isAdmin ? "/admin" : "/dashboard";
+  const home = isAdmin ? "/admin" : isStaff ? "/attendance" : "/dashboard";
 
   return (
     <AppLayout>
       <Switch>
         <Route path="/">
+          {isAuthenticated ? <Redirect to={home} /> : <Landing />}
+        </Route>
+        <Route path="/login">
           {isAuthenticated ? <Redirect to={home} /> : <Login />}
         </Route>
         <Route path="/register">
@@ -73,6 +99,8 @@ function Router() {
         </Route>
 
         <Route path="/instructor/schedule"><ProtectedRoute component={InstructorSchedule} instructorOnly /></Route>
+        <Route path="/attendance"><ProtectedRoute component={Attendance} staffOnly /></Route>
+        <Route path="/leave"><ProtectedRoute component={LeavePage} staffOnly /></Route>
 
         <Route path="/dashboard"><ProtectedRoute component={Dashboard} /></Route>
         <Route path="/reservations"><ProtectedRoute component={Reservations} /></Route>
@@ -103,7 +131,13 @@ function Router() {
         <Route path="/admin/products"><ProtectedRoute component={AdminProducts} adminOnly /></Route>
         <Route path="/admin/orders"><ProtectedRoute component={AdminOrders} adminOnly /></Route>
         <Route path="/admin/ai-chat"><ProtectedRoute component={AdminAiChat} adminOnly /></Route>
+        <Route path="/admin/theme"><ProtectedRoute component={AdminTheme} adminOnly /></Route>
+        <Route path="/admin/attendance"><ProtectedRoute component={AdminAttendance} adminOnly /></Route>
+        <Route path="/admin/leave"><ProtectedRoute component={AdminLeave} adminOnly /></Route>
+        <Route path="/admin/branches"><ProtectedRoute component={AdminBranches} adminOnly /></Route>
+        <Route path="/admin/overview"><ProtectedRoute component={AdminOverview} adminOnly /></Route>
         <Route path="/admin/chat"><ProtectedRoute component={ChatPage} adminOnly /></Route>
+        <Route path="/admin/help"><ProtectedRoute component={AdminHelpCenter} adminOnly /></Route>
 
         <Route component={NotFound} />
       </Switch>
@@ -115,18 +149,21 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <TooltipProvider>
-          <AuthProvider>
-            <LanguageProvider>
-              <CartProvider>
-                <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-                  <Router />
-                </WouterRouter>
-              </CartProvider>
-              <Toaster />
-            </LanguageProvider>
-          </AuthProvider>
-        </TooltipProvider>
+        <ThemeColorProvider>
+          <TooltipProvider>
+            <AuthProvider>
+              <LanguageProvider>
+                <CartProvider>
+                  <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                    <Router />
+                    <LandingPopup />
+                  </WouterRouter>
+                </CartProvider>
+                <Toaster />
+              </LanguageProvider>
+            </AuthProvider>
+          </TooltipProvider>
+        </ThemeColorProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

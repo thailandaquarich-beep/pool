@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearch, useLocation } from "wouter";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import {
   useListReservations,
@@ -25,7 +26,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Search, XCircle, ChevronLeft, ChevronRight, Calendar, CalendarDays, Clock, Users, CheckCircle2, Ticket } from "lucide-react";
+import { Search, XCircle, ChevronLeft, ChevronRight, Calendar, CalendarDays, Clock, Users, CheckCircle2, Ticket, Filter, X } from "lucide-react";
+import { MemberAvatar } from "@/components/member-avatar";
 import { PageHeader } from "@/components/page-header";
 
 type Reservation = {
@@ -38,7 +40,7 @@ type Reservation = {
   notes?: string | null;
   userId: number;
   price?: number;
-  user?: { firstName: string; lastName: string; houseNumber?: string | null };
+  user?: { firstName: string; lastName: string; houseNumber?: string | null; profileImageUrl?: string | null };
   instructor?: { firstName: string; lastName: string } | null;
 };
 
@@ -61,19 +63,51 @@ const StatusBadge = ({ status }: { status: string }) => {
   );
 };
 
+// Dashboard stat cards deep-link here via ?view=… — translate each named view into the
+// exact API filter so the rows shown match the count clicked.
+const VIEW_LABELS: Record<string, string> = {
+  today: "การจองวันนี้",
+  month: "การจองเดือนนี้",
+  upcoming: "คิวที่กำลังจะมาถึง",
+  cancelled: "ยกเลิกเดือนนี้",
+};
+
+function viewToParams(view: string | null) {
+  if (!view) return {};
+  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+  switch (view) {
+    case "today": return { date: today };
+    case "month": return { startDate: monthStart, endDate: monthEnd };
+    case "upcoming": return { startDate: today, status: "confirmed,pending" };
+    case "cancelled": return { startDate: monthStart, endDate: monthEnd, status: "cancelled" };
+    default: return {};
+  }
+}
+
 export function AdminReservations() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const searchStr = useSearch();
+  const [, navigate] = useLocation();
+  const view = new URLSearchParams(searchStr).get("view");
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
 
+  // A new deep-link (view change) always starts back on page 1.
+  useEffect(() => { setPage(1); }, [view]);
+
   const params = {
     page,
     limit: 20,
-    ...(statusFilter !== "all" ? { status: statusFilter } : {}),
+    ...viewToParams(view),
+    // The manual status dropdown only applies when no named view is active.
+    ...(!view && statusFilter !== "all" ? { status: statusFilter } : {}),
   };
 
   const { data, isLoading } = useListReservations(params);
@@ -152,20 +186,31 @@ export function AdminReservations() {
             data-testid="search-input"
           />
         </div>
-        <Select
-          value={statusFilter}
-          onValueChange={(v) => { setStatusFilter(v); setPage(1); }}
-        >
-          <SelectTrigger className="w-[160px]" data-testid="status-filter">
-            <SelectValue placeholder="สถานะทั้งหมด" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">ทุกสถานะ</SelectItem>
-            <SelectItem value="confirmed">ยืนยันแล้ว</SelectItem>
-            <SelectItem value="pending">รอดำเนินการ</SelectItem>
-            <SelectItem value="cancelled">ยกเลิกแล้ว</SelectItem>
-          </SelectContent>
-        </Select>
+        {view ? (
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium" data-testid="active-view-chip">
+              <Filter className="w-3.5 h-3.5" /> {VIEW_LABELS[view] ?? view}
+            </span>
+            <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground" onClick={() => navigate("/admin/reservations")} data-testid="clear-view">
+              <X className="w-4 h-4" /> ล้างตัวกรอง
+            </Button>
+          </div>
+        ) : (
+          <Select
+            value={statusFilter}
+            onValueChange={(v) => { setStatusFilter(v); setPage(1); }}
+          >
+            <SelectTrigger className="w-[160px]" data-testid="status-filter">
+              <SelectValue placeholder="สถานะทั้งหมด" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">ทุกสถานะ</SelectItem>
+              <SelectItem value="confirmed">ยืนยันแล้ว</SelectItem>
+              <SelectItem value="pending">รอดำเนินการ</SelectItem>
+              <SelectItem value="cancelled">ยกเลิกแล้ว</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {/* Table */}
@@ -190,10 +235,10 @@ export function AdminReservations() {
                   <th className="text-left px-4 py-3 font-semibold text-muted-foreground">สมาชิก</th>
                   <th className="text-left px-4 py-3 font-semibold text-muted-foreground">วันที่</th>
                   <th className="text-left px-4 py-3 font-semibold text-muted-foreground">เวลา</th>
-                  <th className="text-left px-4 py-3 font-semibold text-muted-foreground">จำนวน</th>
-                  <th className="text-left px-4 py-3 font-semibold text-muted-foreground">ครูฝึก</th>
+                  <th className="hidden md:table-cell text-left px-4 py-3 font-semibold text-muted-foreground">จำนวน</th>
+                  <th className="hidden lg:table-cell text-left px-4 py-3 font-semibold text-muted-foreground">ครูฝึก</th>
                   <th className="text-left px-4 py-3 font-semibold text-muted-foreground">สถานะ</th>
-                  <th className="text-left px-4 py-3 font-semibold text-muted-foreground">หมายเหตุ</th>
+                  <th className="hidden lg:table-cell text-left px-4 py-3 font-semibold text-muted-foreground">หมายเหตุ</th>
                   <th className="text-right px-4 py-3 font-semibold text-muted-foreground">การดำเนินการ</th>
                 </tr>
               </thead>
@@ -201,12 +246,17 @@ export function AdminReservations() {
                 {filtered.map((r) => (
                   <tr key={r.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3">
-                      <p className="font-medium text-foreground">
-                        {r.user?.firstName} {r.user?.lastName}
-                      </p>
-                      {r.user?.houseNumber && (
-                        <p className="text-xs text-muted-foreground">บ้านเลขที่ {r.user.houseNumber}</p>
-                      )}
+                      <div className="flex items-center gap-2.5">
+                        <MemberAvatar firstName={r.user?.firstName} lastName={r.user?.lastName} src={r.user?.profileImageUrl} className="w-9 h-9 text-xs" />
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground truncate">
+                            {r.user?.firstName} {r.user?.lastName}
+                          </p>
+                          {r.user?.houseNumber && (
+                            <p className="text-xs text-muted-foreground">บ้านเลขที่ {r.user.houseNumber}</p>
+                          )}
+                        </div>
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5 text-foreground">
@@ -220,19 +270,19 @@ export function AdminReservations() {
                         {r.startTime} – {r.endTime}
                       </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="hidden md:table-cell px-4 py-3">
                       <div className="flex items-center gap-1.5 text-foreground">
                         <Users className="w-3.5 h-3.5 text-muted-foreground" />
                         {r.numberOfPeople} คน
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-foreground">
+                    <td className="hidden lg:table-cell px-4 py-3 text-foreground">
                       {r.instructor ? `${r.instructor.firstName} ${r.instructor.lastName}` : <span className="text-muted-foreground">–</span>}
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge status={r.status} />
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs max-w-[160px] truncate">
+                    <td className="hidden lg:table-cell px-4 py-3 text-muted-foreground text-xs max-w-[160px] truncate">
                       {r.notes ?? "–"}
                     </td>
                     <td className="px-4 py-3 text-right">

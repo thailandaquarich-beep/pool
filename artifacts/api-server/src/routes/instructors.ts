@@ -1,9 +1,11 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { db, instructorsTable, reservationsTable, instructorAvailabilityTable, usersTable } from "@workspace/db";
-import { eq, ilike, or, sql, and, inArray, isNotNull, asc, gte, ne } from "drizzle-orm";
+import { eq, ilike, or, sql, and, inArray, isNotNull, asc, gte, lte, ne } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth.js";
+import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
 import { consumeUse, refundUseForReservation, NoQuotaError } from "../lib/packageUsage.js";
+import { initMemberFolder } from "../lib/memberLog.js";
 
 const router = Router();
 
@@ -17,44 +19,71 @@ async function instructorForUser(userId: number) {
   return inst || null;
 }
 
-// Find the instructor profile linked to this account; if the user has the "instructor"
-// role but no linked profile yet (e.g. promoted via the role dropdown), link an existing
-// record by email or create one. Guarantees any instructor-rank user can schedule.
-async function ensureInstructorForUser(userId: number, role?: string) {
+// Resolve the instructor profile for a logged-in account. The user's CURRENT role is read
+// from the DB (NOT the JWT), so a member just promoted to "instructor" via the role dropdown
+// can use the instructor system immediately — without logging out and back in for a fresh
+// token. (It also denies anyone since demoted out of the role, even if a stale token says
+// otherwise.) If they hold the instructor role but have no linked profile yet, link an
+// existing record by email or create one. Returns null for anyone not currently an instructor.
+async function ensureInstructorForUser(userId: number) {
+  const [u] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  if (!u || u.role !== "instructor") return null;
+
   const linked = await instructorForUser(userId);
   if (linked) return linked;
-  if (role !== "instructor") return null;
-  const [u] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
-  if (!u) return null;
+
+  // Reuse an admin-created instructor record with the same email; otherwise create a fresh one.
   const [byEmail] = await db.select().from(instructorsTable).where(eq(instructorsTable.email, u.email)).limit(1);
   if (byEmail) {
     const [updated] = await db.update(instructorsTable).set({ userId }).where(eq(instructorsTable.id, byEmail.id)).returning();
     return updated;
   }
   const [created] = await db.insert(instructorsTable).values({
-    firstName: u.firstName, lastName: u.lastName, phone: u.phone, email: u.email,
+    firstName: u.firstName, lastName: u.lastName, phone: u.phone ?? "-", email: u.email,
     specialty: "ครูฝึก", status: "active", userId,
   }).returning();
   return created;
 }
 
 // GET /instructors — authenticated
-router.get("/", authenticate, async (req, res) => {
+router.get("/", authenticate, attachBranch, async (req, res) => {
   try {
     const search = req.query.search as string | undefined;
     const status = req.query.status as string | undefined;
 
-    let query = db.select().from(instructorsTable);
-    if (status) {
-      query = query.where(eq(instructorsTable.status, status as "active" | "on_leave" | "inactive")) as typeof query;
-    } else if (search) {
-      query = query.where(
-        or(ilike(instructorsTable.firstName, `%${search}%`), ilike(instructorsTable.lastName, `%${search}%`), ilike(instructorsTable.specialty, `%${search}%`))
-      ) as typeof query;
-    }
+    const where = and(
+      branchEq(req, instructorsTable.branchId),
+      status ? eq(instructorsTable.status, status as "active" | "on_leave" | "inactive")
+        : search ? or(ilike(instructorsTable.firstName, `%${search}%`), ilike(instructorsTable.lastName, `%${search}%`), ilike(instructorsTable.specialty, `%${search}%`))
+        : undefined
+    );
 
-    const instructors = await query.orderBy(instructorsTable.firstName);
+    const instructors = await db.select().from(instructorsTable).where(where).orderBy(instructorsTable.firstName);
     return res.json(instructors);
+  } catch {
+    return res.status(500).json({ error: "Failed to list instructors" });
+  }
+});
+
+// GET /instructors/public — active instructors for the public landing page (no auth).
+// Curated, non-sensitive columns only (no phone/email). Must stay above "/:id".
+router.get("/public", async (_req, res) => {
+  try {
+    const rows = await db
+      .select({
+        id: instructorsTable.id,
+        firstName: instructorsTable.firstName,
+        lastName: instructorsTable.lastName,
+        specialty: instructorsTable.specialty,
+        certification: instructorsTable.certification,
+        experience: instructorsTable.experience,
+        biography: instructorsTable.biography,
+        profileImageUrl: instructorsTable.profileImageUrl,
+      })
+      .from(instructorsTable)
+      .where(eq(instructorsTable.status, "active"))
+      .orderBy(instructorsTable.firstName);
+    return res.json(rows);
   } catch {
     return res.status(500).json({ error: "Failed to list instructors" });
   }
@@ -119,16 +148,38 @@ router.get("/today", authenticate, async (req, res) => {
 // GET /instructors/me — logged-in instructor's own profile
 router.get("/me", authenticate, async (req, res) => {
   try {
-    const inst = await ensureInstructorForUser(req.user!.userId, req.user!.role);
+    const inst = await ensureInstructorForUser(req.user!.userId);
     if (!inst) return res.status(404).json({ error: "No instructor profile linked to this account" });
     return res.json(inst);
   } catch { return res.status(500).json({ error: "Failed to get profile" }); }
 });
 
+// GET /instructors/me/stats — how many sessions this instructor has actually taught
+// at the club: confirmed reservations whose date is today or earlier (already occurred).
+// Returns lifetime total plus a this-month count for the dashboard.
+router.get("/me/stats", authenticate, async (req, res) => {
+  try {
+    const inst = await ensureInstructorForUser(req.user!.userId);
+    if (!inst) return res.status(404).json({ error: "No instructor profile" });
+    const today = new Date().toISOString().slice(0, 10);
+    const monthStart = today.slice(0, 8) + "01";
+    const taught = and(
+      eq(reservationsTable.instructorId, inst.id),
+      eq(reservationsTable.status, "confirmed"),
+      lte(reservationsTable.date, today),
+    );
+    const [{ total }] = await db.select({ total: sql<number>`count(*)::int` })
+      .from(reservationsTable).where(taught);
+    const [{ thisMonth }] = await db.select({ thisMonth: sql<number>`count(*)::int` })
+      .from(reservationsTable).where(and(taught, gte(reservationsTable.date, monthStart)));
+    return res.json({ total, thisMonth });
+  } catch { return res.status(500).json({ error: "Failed to get stats" }); }
+});
+
 // GET /instructors/me/bookings — customers who booked a session with THIS instructor
 router.get("/me/bookings", authenticate, async (req, res) => {
   try {
-    const inst = await ensureInstructorForUser(req.user!.userId, req.user!.role);
+    const inst = await ensureInstructorForUser(req.user!.userId);
     if (!inst) return res.status(404).json({ error: "No instructor profile" });
     const today = new Date().toISOString().slice(0, 10);
     const rows = await db
@@ -157,7 +208,7 @@ router.get("/me/bookings", authenticate, async (req, res) => {
 // confirming deducts one package use (once), cancelling refunds it.
 router.patch("/me/bookings/:id", authenticate, async (req, res) => {
   try {
-    const inst = await ensureInstructorForUser(req.user!.userId, req.user!.role);
+    const inst = await ensureInstructorForUser(req.user!.userId);
     if (!inst) return res.status(404).json({ error: "No instructor profile" });
     const id = parseInt(req.params.id);
     const [existing] = await db.select().from(reservationsTable).where(eq(reservationsTable.id, id)).limit(1);
@@ -167,24 +218,30 @@ router.patch("/me/bookings/:id", authenticate, async (req, res) => {
     const status = req.body?.status;
     if (status !== "confirmed" && status !== "cancelled") return res.status(400).json({ error: "status must be confirmed|cancelled" });
 
-    const isConfirming = status === "confirmed" && existing.status !== "confirmed";
-    const isCancelling = status === "cancelled" && existing.status !== "cancelled";
-    if (!isConfirming && !isCancelling) return res.json({ ...existing, createdAt: existing.createdAt.toISOString(), remainingAfter: null });
-
     let remainingAfter: number | null = null;
     try {
       const updated = await db.transaction(async (tx) => {
+        // Re-read the row under a lock so a simultaneous admin confirm (PATCH /reservations/:id)
+        // can't slip between our read and write and double-deduct the member's package. All
+        // confirm/cancel decisions below use this fresh, locked copy — never the stale pre-read.
+        const [fresh] = await tx.select().from(reservationsTable).where(eq(reservationsTable.id, id)).limit(1).for("update");
+        if (!fresh) return null;
+        const confirming = status === "confirmed" && fresh.status !== "confirmed";
+        const cancelling = status === "cancelled" && fresh.status !== "cancelled";
+        if (!confirming && !cancelling) return fresh; // already in the requested state — no-op
+
         const updates: Partial<typeof reservationsTable.$inferInsert> = { status };
         // Deduct once on confirm (guarded by memberPackageId so it can't double-charge).
-        if (isConfirming && !existing.memberPackageId) {
-          const consumed = await consumeUse(tx, existing.userId, { source: "booking", reservationId: id, note: `ครูฝึกยืนยัน ${existing.date} ${existing.startTime}-${existing.endTime}` });
+        if (confirming && !fresh.memberPackageId) {
+          const consumed = await consumeUse(tx, fresh.userId, { source: "booking", reservationId: id, note: `ครูฝึกยืนยัน ${fresh.date} ${fresh.startTime}-${fresh.endTime}` });
           updates.memberPackageId = consumed.memberPackageId;
           remainingAfter = consumed.remainingAfter;
         }
         const [u] = await tx.update(reservationsTable).set(updates).where(eq(reservationsTable.id, id)).returning();
-        if (isCancelling) await refundUseForReservation(tx, id);
+        if (cancelling) await refundUseForReservation(tx, id);
         return u;
       });
+      if (!updated) return res.status(404).json({ error: "Reservation not found" });
       return res.json({ ...updated, createdAt: updated.createdAt.toISOString(), remainingAfter });
     } catch (e) {
       if (e instanceof NoQuotaError) return res.status(400).json({ error: "สมาชิกไม่มีสิทธิ์การใช้งานเหลือ ยืนยันไม่ได้" });
@@ -196,7 +253,7 @@ router.patch("/me/bookings/:id", authenticate, async (req, res) => {
 // GET /instructors/me/availability
 router.get("/me/availability", authenticate, async (req, res) => {
   try {
-    const inst = await ensureInstructorForUser(req.user!.userId, req.user!.role);
+    const inst = await ensureInstructorForUser(req.user!.userId);
     if (!inst) return res.status(404).json({ error: "No instructor profile" });
     const rows = await db.select().from(instructorAvailabilityTable)
       .where(eq(instructorAvailabilityTable.instructorId, inst.id)).orderBy(...availOrder);
@@ -207,7 +264,7 @@ router.get("/me/availability", authenticate, async (req, res) => {
 // POST /instructors/me/availability — add a weekly or specific-date slot
 router.post("/me/availability", authenticate, async (req, res) => {
   try {
-    const inst = await ensureInstructorForUser(req.user!.userId, req.user!.role);
+    const inst = await ensureInstructorForUser(req.user!.userId);
     if (!inst) return res.status(404).json({ error: "No instructor profile" });
     const { kind, dayOfWeek, date, startTime, endTime, note, isAvailable } = req.body;
     if (kind !== "weekly" && kind !== "date") return res.status(400).json({ error: "kind must be weekly|date" });
@@ -228,7 +285,7 @@ router.post("/me/availability", authenticate, async (req, res) => {
 // DELETE /instructors/me/availability/:slotId
 router.delete("/me/availability/:slotId", authenticate, async (req, res) => {
   try {
-    const inst = await ensureInstructorForUser(req.user!.userId, req.user!.role);
+    const inst = await ensureInstructorForUser(req.user!.userId);
     if (!inst) return res.status(404).json({ error: "No instructor profile" });
     await db.delete(instructorAvailabilityTable).where(and(
       eq(instructorAvailabilityTable.id, parseInt(req.params.slotId)),
@@ -275,21 +332,45 @@ router.post("/:id/account", authenticate, requireAdmin, async (req, res) => {
       phone: inst.phone, email: inst.email, username, passwordHash, role: "instructor",
     }).returning();
     await db.update(instructorsTable).set({ userId: user.id }).where(eq(instructorsTable.id, id));
+
+    // New login code created for an instructor -> set up their personal folder + logs.
+    await initMemberFolder(user, "instructor_account");
+
     return res.status(201).json({ ok: true, userId: user.id, username });
   } catch { return res.status(500).json({ error: "Failed to create instructor account" }); }
 });
 
 // POST /instructors — admin only
-router.post("/", authenticate, requireAdmin, async (req, res) => {
+router.post("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
     const { firstName, lastName, phone, email, specialty, certification, experience, biography, profileImageUrl, status, userId } = req.body;
     const [instructor] = await db
       .insert(instructorsTable)
-      .values({ firstName, lastName, phone, email, specialty, certification, experience, biography, profileImageUrl, status: status || "active", userId: userId ?? null })
+      .values({ firstName, lastName, phone, email, specialty, certification, experience, biography, profileImageUrl, status: status || "active", userId: userId ?? null, branchId: newRowBranch(req) })
       .returning();
     return res.status(201).json(instructor);
   } catch {
     return res.status(500).json({ error: "Failed to create instructor" });
+  }
+});
+
+// POST /instructors/promote — admin: promote a user to instructor in one idempotent step.
+// Sets role=instructor FIRST (the rank change) then links/creates their instructor profile
+// (reusing the existing row by userId/email — never throws on duplicate, never duplicates rows).
+router.post("/promote", authenticate, requireAdmin, async (req, res) => {
+  try {
+    const userId = Number(req.body.userId);
+    const specialty = req.body.specialty as string | undefined;
+    if (!userId) return res.status(400).json({ error: "userId required" });
+    const [u] = await db.update(usersTable).set({ role: "instructor" }).where(eq(usersTable.id, userId)).returning();
+    if (!u) return res.status(404).json({ error: "User not found" });
+    const inst = await ensureInstructorForUser(u.id); // role set to instructor above; link-by-email or create
+    if (inst && specialty) {
+      await db.update(instructorsTable).set({ specialty }).where(eq(instructorsTable.id, inst.id));
+    }
+    return res.json({ ok: true, userId: u.id, role: u.role, instructorId: inst?.id ?? null });
+  } catch {
+    return res.status(500).json({ error: "Failed to promote to instructor" });
   }
 });
 

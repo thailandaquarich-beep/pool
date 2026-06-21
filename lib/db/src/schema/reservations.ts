@@ -26,6 +26,7 @@ export const reservationsTable = pgTable("reservations", {
   status: reservationStatusEnum("status").notNull().default("confirmed"),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  branchId: integer("branch_id").default(1),
 });
 
 export const insertReservationSchema = createInsertSchema(reservationsTable).omit({

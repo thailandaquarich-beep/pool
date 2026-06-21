@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, productsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth.js";
+import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
 
 const router = Router();
 
@@ -22,9 +23,9 @@ router.get("/", async (_req, res) => {
 });
 
 // GET /products/all — admin: include inactive
-router.get("/all", authenticate, requireAdmin, async (_req, res) => {
+router.get("/all", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
-    const rows = await db.select().from(productsTable).orderBy(productsTable.sortOrder, productsTable.name);
+    const rows = await db.select().from(productsTable).where(branchEq(req, productsTable.branchId)).orderBy(productsTable.sortOrder, productsTable.name);
     return res.json(rows.map(fmt));
   } catch {
     return res.status(500).json({ error: "Failed to list products" });
@@ -32,7 +33,7 @@ router.get("/all", authenticate, requireAdmin, async (_req, res) => {
 });
 
 // POST /products — admin
-router.post("/", authenticate, requireAdmin, async (req, res) => {
+router.post("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
     const { name, nameEn, category, description, price, imageUrl, stock, sortOrder } = req.body;
     if (!name) return res.status(400).json({ error: "name required" });
@@ -43,6 +44,7 @@ router.post("/", authenticate, requireAdmin, async (req, res) => {
         price: String(price ?? 0), imageUrl: imageUrl || null,
         stock: stock != null && stock !== "" ? Number(stock) : null,
         sortOrder: sortOrder ? Number(sortOrder) : 0,
+        branchId: newRowBranch(req),
       })
       .returning();
     return res.status(201).json(fmt(row));
@@ -71,11 +73,12 @@ router.patch("/:id", authenticate, requireAdmin, async (req, res) => {
   }
 });
 
-// DELETE /products/:id — admin: soft deactivate
+// DELETE /products/:id — admin: permanently delete (orders keep a JSON snapshot, so no FK to break)
 router.delete("/:id", authenticate, requireAdmin, async (req, res) => {
   try {
-    await db.update(productsTable).set({ isActive: false }).where(eq(productsTable.id, parseInt(req.params.id)));
-    return res.json({ message: "Product deactivated" });
+    const [row] = await db.delete(productsTable).where(eq(productsTable.id, parseInt(req.params.id))).returning();
+    if (!row) return res.status(404).json({ error: "Product not found" });
+    return res.json({ message: "Product deleted" });
   } catch {
     return res.status(500).json({ error: "Failed to delete product" });
   }

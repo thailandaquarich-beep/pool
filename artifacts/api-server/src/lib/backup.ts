@@ -84,8 +84,15 @@ export async function runFullBackup(): Promise<{ file: string; counts: Record<st
     package_usages: m.packageUsagesTable,
     products: m.productsTable,
     orders: m.ordersTable,
+    member_addons: m.memberAddonsTable,
     chat_tickets: m.chatTicketsTable,
     chat_messages: m.chatMessagesTable,
+    ai_chat_messages: m.aiChatMessagesTable,
+    dev_tickets: m.devTicketsTable,
+    dev_ticket_messages: m.devTicketMessagesTable,
+    attendance: m.attendanceTable,
+    branches: m.branchesTable,
+    leave_requests: m.leaveRequestsTable,
   };
 
   const createdAt = new Date().toISOString();

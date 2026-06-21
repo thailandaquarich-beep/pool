@@ -117,7 +117,7 @@ export const Cart: FC = () => {
       <Card>
         <CardContent className="p-4 space-y-4">
           <h2 className="font-semibold flex items-center gap-2"><MapPin className="w-4 h-4 text-primary" /> ที่อยู่จัดส่ง</h2>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5"><Label className="text-xs flex items-center gap-1"><User className="w-3 h-3" />ชื่อผู้รับ *</Label><Input value={recipientName} onChange={(e) => setRecipientName(e.target.value)} /></div>
             <div className="space-y-1.5"><Label className="text-xs flex items-center gap-1"><Phone className="w-3 h-3" />เบอร์โทร *</Label><Input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" /></div>
           </div>

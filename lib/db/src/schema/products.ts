@@ -13,6 +13,7 @@ export const productsTable = pgTable("products", {
   isActive: boolean("is_active").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  branchId: integer("branch_id").default(1),
 });
 
 export type Product = typeof productsTable.$inferSelect;

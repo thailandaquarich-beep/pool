@@ -2,10 +2,27 @@ import { Router } from "express";
 import { db, membershipPackagesTable, memberPackagesTable, walletsTable, transactionsTable } from "@workspace/db";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth.js";
+import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
 import { getOrCreateWallet } from "./wallet.js";
 import { getActiveUsages } from "../lib/packageUsage.js";
+import { appendMemberLog } from "../lib/memberLog.js";
 
 const router = Router();
+
+// GET /packages/public — active packages for the public landing page (no auth).
+// Same shape as the authenticated list; only active packages are exposed.
+router.get("/public", async (_req, res) => {
+  try {
+    const packages = await db
+      .select()
+      .from(membershipPackagesTable)
+      .where(eq(membershipPackagesTable.isActive, true))
+      .orderBy(membershipPackagesTable.sortOrder, membershipPackagesTable.price);
+    return res.json(packages.map(p => ({ ...p, price: Number(p.price), bookingDiscount: Number(p.bookingDiscount) })));
+  } catch {
+    return res.status(500).json({ error: "Failed to list packages" });
+  }
+});
 
 // GET /packages — list active packages (all users)
 router.get("/", authenticate, async (req, res) => {
@@ -22,9 +39,9 @@ router.get("/", authenticate, async (req, res) => {
 });
 
 // GET /packages/all — admin: all including inactive
-router.get("/all", authenticate, requireAdmin, async (req, res) => {
+router.get("/all", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
-    const packages = await db.select().from(membershipPackagesTable).orderBy(membershipPackagesTable.sortOrder);
+    const packages = await db.select().from(membershipPackagesTable).where(branchEq(req, membershipPackagesTable.branchId)).orderBy(membershipPackagesTable.sortOrder);
     return res.json(packages.map(p => ({ ...p, price: Number(p.price), bookingDiscount: Number(p.bookingDiscount) })));
   } catch {
     return res.status(500).json({ error: "Failed to list packages" });
@@ -32,12 +49,13 @@ router.get("/all", authenticate, requireAdmin, async (req, res) => {
 });
 
 // POST /packages — admin: create
-router.post("/", authenticate, requireAdmin, async (req, res) => {
+router.post("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
     const { name, nameEn, description, descriptionEn, price, durationDays, benefits, benefitsEn, maxBookingsPerMonth, bookingDiscount, sortOrder } = req.body;
     const [pkg] = await db.insert(membershipPackagesTable).values({
       name, nameEn: nameEn || name, description, descriptionEn, price: String(price), durationDays,
       benefits, benefitsEn, maxBookingsPerMonth, bookingDiscount: String(bookingDiscount || 0), sortOrder: sortOrder || 0,
+      branchId: newRowBranch(req),
     }).returning();
     return res.status(201).json({ ...pkg, price: Number(pkg.price), bookingDiscount: Number(pkg.bookingDiscount) });
   } catch {
@@ -71,12 +89,19 @@ router.patch("/:id", authenticate, requireAdmin, async (req, res) => {
   }
 });
 
-// DELETE /packages/:id — admin
+// DELETE /packages/:id — admin: permanently delete (blocked if members already own it)
 router.delete("/:id", authenticate, requireAdmin, async (req, res) => {
   try {
-    await db.update(membershipPackagesTable).set({ isActive: false }).where(eq(membershipPackagesTable.id, parseInt(req.params.id)));
-    return res.json({ message: "Package deactivated" });
-  } catch {
+    const id = parseInt(req.params.id);
+    const [row] = await db.delete(membershipPackagesTable).where(eq(membershipPackagesTable.id, id)).returning();
+    if (!row) return res.status(404).json({ error: "Package not found" });
+    return res.json({ message: "Package deleted" });
+  } catch (err: any) {
+    // 23503 = FK violation: a member_packages row still references this package.
+    // drizzle wraps the pg error, so the code may be on err.cause.
+    if (err?.code === "23503" || err?.cause?.code === "23503") {
+      return res.status(409).json({ error: "ลบไม่ได้ เพราะมีสมาชิกซื้อแพ็กเกจนี้แล้ว กรุณาใช้ปุ่มปิดการใช้งานแทน" });
+    }
     return res.status(500).json({ error: "Failed to delete package" });
   }
 });
@@ -179,6 +204,10 @@ router.post("/:id/purchase", authenticate, async (req, res) => {
       pricePaid: String(price),
       endDate,
     }).returning();
+
+    await appendMemberLog({ userId: req.user!.userId }, "activity", {
+      action: "package_purchase", packageName: pkg.name, price,
+    });
 
     return res.status(201).json({ ...mp, pricePaid: Number(mp.pricePaid), startDate: mp.startDate.toISOString(), endDate: mp.endDate.toISOString(), createdAt: mp.createdAt.toISOString(), package: { ...pkg, price: Number(pkg.price) } });
   } catch {

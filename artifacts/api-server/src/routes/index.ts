@@ -18,6 +18,11 @@ import notificationsRouter from "./notifications";
 import productsRouter from "./products";
 import ordersRouter from "./orders";
 import aiChatRouter from "./aiChat";
+import themeRouter from "./theme";
+import devSupportRouter from "./devSupport";
+import attendanceRouter from "./attendance";
+import branchesRouter from "./branches";
+import leaveRouter from "./leave";
 
 const router: IRouter = Router();
 
@@ -40,5 +45,10 @@ router.use("/notifications", notificationsRouter);
 router.use("/products", productsRouter);
 router.use("/orders", ordersRouter);
 router.use("/ai-chat", aiChatRouter);
+router.use("/theme", themeRouter);
+router.use("/dev-support", devSupportRouter);
+router.use("/attendance", attendanceRouter);
+router.use("/branches", branchesRouter);
+router.use("/leave", leaveRouter);
 
 export default router;

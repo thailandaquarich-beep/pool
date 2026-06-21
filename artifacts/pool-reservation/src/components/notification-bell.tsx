@@ -102,7 +102,7 @@ export const NotificationBell: FC = () => {
           )}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-0 overflow-hidden">
+      <PopoverContent align="end" className="w-[calc(100vw-1.5rem)] sm:w-80 p-0 overflow-hidden">
         <div className="px-4 py-3 border-b flex items-center justify-between">
           <span className="font-semibold text-sm">การแจ้งเตือน</span>
           {items.length > 0 && <span className="text-xs text-muted-foreground flex items-center gap-1"><Check className="w-3 h-3" /> อ่านแล้ว</span>}

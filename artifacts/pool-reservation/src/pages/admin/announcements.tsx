@@ -251,7 +251,7 @@ export function AdminAnnouncements() {
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>เพิ่มประกาศใหม่</DialogTitle></DialogHeader>
-          <FormBody />
+          {FormBody()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>ยกเลิก</Button>
             <Button disabled={createMutation.isPending || !form.title || !form.content} onClick={() => createMutation.mutate(form)}>
@@ -265,7 +265,7 @@ export function AdminAnnouncements() {
       <Dialog open={!!editTarget} onOpenChange={o => !o && setEditTarget(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>แก้ไขประกาศ</DialogTitle></DialogHeader>
-          <FormBody />
+          {FormBody()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditTarget(null)}>ยกเลิก</Button>
             <Button disabled={updateMutation.isPending} onClick={() => editTarget && updateMutation.mutate({ id: editTarget.id, data: form })}>

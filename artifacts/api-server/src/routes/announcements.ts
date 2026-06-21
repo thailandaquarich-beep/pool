@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, announcementsTable } from "@workspace/db";
 import { eq, and, or, gte, sql } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth.js";
+import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
 
 const router = Router();
 
@@ -22,11 +23,12 @@ router.get("/", async (req, res) => {
 });
 
 // GET /announcements/all — admin only
-router.get("/all", authenticate, requireAdmin, async (req, res) => {
+router.get("/all", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
     const announcements = await db
       .select()
       .from(announcementsTable)
+      .where(branchEq(req, announcementsTable.branchId))
       .orderBy(sql`${announcementsTable.isPinned} DESC, ${announcementsTable.createdAt} DESC`);
     return res.json(announcements.map(a => ({ ...a, createdAt: a.createdAt.toISOString(), expiresAt: a.expiresAt?.toISOString() || null })));
   } catch {
@@ -35,12 +37,12 @@ router.get("/all", authenticate, requireAdmin, async (req, res) => {
 });
 
 // POST /announcements — admin only
-router.post("/", authenticate, requireAdmin, async (req, res) => {
+router.post("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
     const { title, titleEn, content, contentEn, type, isPublished, isPinned, expiresAt } = req.body;
     const [ann] = await db
       .insert(announcementsTable)
-      .values({ title, titleEn, content, contentEn, type: type || "info", isPublished: isPublished ?? true, isPinned: isPinned ?? false, expiresAt: expiresAt ? new Date(expiresAt) : undefined })
+      .values({ title, titleEn, content, contentEn, type: type || "info", isPublished: isPublished ?? true, isPinned: isPinned ?? false, expiresAt: expiresAt ? new Date(expiresAt) : undefined, branchId: newRowBranch(req) })
       .returning();
     return res.status(201).json({ ...ann, createdAt: ann.createdAt.toISOString(), expiresAt: ann.expiresAt?.toISOString() || null });
   } catch {

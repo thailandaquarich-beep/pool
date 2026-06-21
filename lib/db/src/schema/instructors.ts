@@ -16,6 +16,7 @@ export const instructorsTable = pgTable("instructors", {
   status: instructorStatusEnum("status").notNull().default("active"),
   userId: integer("user_id"), // links to a users row (role=instructor) so the instructor can log in
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  branchId: integer("branch_id").default(1),
 });
 
 export type Instructor = typeof instructorsTable.$inferSelect;

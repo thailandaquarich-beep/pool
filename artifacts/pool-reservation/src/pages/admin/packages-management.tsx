@@ -7,7 +7,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Pencil, Crown, Calendar, Percent } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Plus, Pencil, Crown, Calendar, Percent, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-header";
 
@@ -26,6 +30,8 @@ export const AdminPackagesManagement: FC = () => {
   const [form, setForm] = useState(empty());
   const [editId, setEditId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Package | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchPackages = async () => {
     setLoading(true);
@@ -55,6 +61,26 @@ export const AdminPackagesManagement: FC = () => {
       fetchPackages();
     } catch { toast({ title: "เกิดข้อผิดพลาด", variant: "destructive" }); }
     finally { setSaving(false); }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/packages/${deleteTarget.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "ลบไม่สำเร็จ");
+      toast({ title: "ลบแพ็กเกจแล้ว" });
+      setDeleteTarget(null);
+      fetchPackages();
+    } catch (e: any) {
+      toast({ title: e.message || "เกิดข้อผิดพลาด", variant: "destructive" });
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const toggleActive = async (pkg: Package) => {
@@ -102,6 +128,7 @@ export const AdminPackagesManagement: FC = () => {
                 <div className="flex gap-2 pt-2">
                   <Button variant="outline" size="sm" className="flex-1" onClick={() => openEdit(pkg)}><Pencil className="w-3 h-3 mr-1" />แก้ไข</Button>
                   <Button variant="ghost" size="sm" onClick={() => toggleActive(pkg)}>{pkg.isActive ? "ปิด" : "เปิด"}</Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDeleteTarget(pkg)}><Trash2 className="w-4 h-4" /></Button>
                 </div>
               </CardContent>
             </Card>
@@ -137,6 +164,20 @@ export const AdminPackagesManagement: FC = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Delete confirm */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={o => !o && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>ลบแพ็กเกจ</AlertDialogTitle>
+            <AlertDialogDescription>ต้องการลบ <span className="font-semibold">{deleteTarget?.name}</span> ออกถาวร? การกระทำนี้ย้อนกลับไม่ได้ (ถ้าต้องการแค่ซ่อนชั่วคราว ให้กดปุ่ม "ปิด" แทน)</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={(e) => { e.preventDefault(); handleDelete(); }} disabled={deleting}>{deleting ? "กำลังลบ..." : "ลบถาวร"}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

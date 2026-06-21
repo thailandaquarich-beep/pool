@@ -16,12 +16,13 @@ type Product = {
 export const Products: FC = () => {
   const token = localStorage.getItem("pool_token");
   const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, "");
-  const { add, count } = useCart();
+  const { add, count, items } = useCart();
   const { toast } = useToast();
   const [, navigate] = useLocation();
 
   const { data: products, isLoading } = useQuery<Product[]>({
     queryKey: ["products", "active"],
+    refetchInterval: 15000, // real-time stock/price updates from admin
     queryFn: async () => {
       const res = await fetch(`${baseUrl}/api/products`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) return [];
@@ -29,12 +30,22 @@ export const Products: FC = () => {
     },
   });
 
+  const inCart = (id: number) => items.find((i) => i.productId === id)?.qty ?? 0;
+  const addToCart = (p: Product) => {
+    if (p.stock != null && inCart(p.id) >= p.stock) {
+      toast({ title: `มีสินค้าในสต็อกเพียง ${p.stock} ชิ้น`, variant: "destructive" });
+      return;
+    }
+    add({ productId: p.id, name: p.name, price: p.price, imageUrl: p.imageUrl });
+    toast({ title: `เพิ่ม "${p.name}" ลงตะกร้าแล้ว` });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl sm:text-3xl font-display font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-primary to-cyan-600 flex items-center gap-2">
-            <ShoppingBag className="w-7 h-7 text-fuchsia-500" /> ผลิตภัณฑ์
+            <ShoppingBag className="w-7 h-7 text-fuchsia-500" /> ร้านค้าสโมสร
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5">
             <Sparkles className="w-4 h-4 text-cyan-500" /> สินค้าและอุปกรณ์ของ Aquarich
@@ -47,14 +58,14 @@ export const Products: FC = () => {
       </div>
 
       {isLoading ? (
-        <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">{[1, 2, 3, 4].map(i => <div key={i} className="h-56 rounded-xl bg-muted animate-pulse" />)}</div>
+        <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">{[1, 2, 3, 4].map(i => <div key={i} className="h-56 rounded-xl bg-muted animate-pulse" />)}</div>
       ) : !products?.length ? (
         <div className="text-center py-20 text-muted-foreground">
           <ShoppingBag className="w-12 h-12 mx-auto mb-3 opacity-40" />
           <p>ยังไม่มีผลิตภัณฑ์ในขณะนี้</p>
         </div>
       ) : (
-        <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
           {products.map((p) => (
             <Card key={p.id} className="overflow-hidden card-lift">
               {p.imageUrl ? (
@@ -78,9 +89,9 @@ export const Products: FC = () => {
                   size="sm"
                   className="w-full gap-1.5 mt-1"
                   disabled={p.stock != null && p.stock <= 0}
-                  onClick={() => { add({ productId: p.id, name: p.name, price: p.price, imageUrl: p.imageUrl }); toast({ title: `เพิ่ม "${p.name}" ลงตะกร้าแล้ว` }); }}
+                  onClick={() => addToCart(p)}
                 >
-                  <Plus className="w-3.5 h-3.5" /> ใส่ตะกร้า
+                  <Plus className="w-3.5 h-3.5" /> {p.stock != null && p.stock <= 0 ? "สินค้าหมด" : "ใส่ตะกร้า"}
                 </Button>
               </CardContent>
             </Card>

@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Building2, Plus, Clock, Users, Pencil } from "lucide-react";
+import { ImageUpload } from "@/components/image-upload";
 import { PageHeader } from "@/components/page-header";
 
 type Facility = {
@@ -31,6 +32,8 @@ type Facility = {
   depth: string | null;
   lanes: number | null;
   priceInfo: string | null;
+  isPurchasable: boolean;
+  price: number | null;
   isActive: boolean;
 };
 
@@ -52,6 +55,8 @@ type FacilityForm = {
   depth: string;
   lanes: string;
   priceInfo: string;
+  isPurchasable: boolean;
+  price: string;
 };
 
 const emptyForm = (): FacilityForm => ({
@@ -59,6 +64,7 @@ const emptyForm = (): FacilityForm => ({
   capacity: 20, openTime: "06:00", closeTime: "20:00",
   imageUrl: "", rules: "", slotDurationMinutes: 60,
   location: "", phone: "", mapUrl: "", amenities: "", depth: "", lanes: "", priceInfo: "",
+  isPurchasable: false, price: "",
 });
 
 export function AdminFacilities() {
@@ -128,6 +134,7 @@ export function AdminFacilities() {
       location: f.location ?? "", phone: f.phone ?? "", mapUrl: f.mapUrl ?? "",
       amenities: f.amenities ?? "", depth: f.depth ?? "", lanes: f.lanes != null ? String(f.lanes) : "",
       priceInfo: f.priceInfo ?? "",
+      isPurchasable: f.isPurchasable ?? false, price: f.price != null ? String(f.price) : "",
     });
     setEditTarget(f);
   }
@@ -155,7 +162,7 @@ export function AdminFacilities() {
         <Label>คำอธิบาย (อังกฤษ)</Label>
         <Textarea value={form.descriptionEn} onChange={e => set("descriptionEn", e.target.value)} rows={2} />
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div className="space-y-1.5">
           <Label>ความจุ (คน)</Label>
           <Input type="number" min={1} value={form.capacity} onChange={e => set("capacity", parseInt(e.target.value) || 1)} />
@@ -172,8 +179,8 @@ export function AdminFacilities() {
 
       {/* Extended details */}
       <div className="space-y-1.5">
-        <Label>รูปภาพ (URL)</Label>
-        <Input value={form.imageUrl} onChange={e => set("imageUrl", e.target.value)} placeholder="https://..." />
+        <Label>รูปภาพ</Label>
+        <ImageUpload value={form.imageUrl} onChange={(v) => set("imageUrl", v ?? "")} shape="wide" maxMb={5} />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
@@ -189,7 +196,7 @@ export function AdminFacilities() {
         <Label>ลิงก์แผนที่ (Google Maps)</Label>
         <Input value={form.mapUrl} onChange={e => set("mapUrl", e.target.value)} placeholder="https://maps.google.com/..." />
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div className="space-y-1.5">
           <Label>ความลึก</Label>
           <Input value={form.depth} onChange={e => set("depth", e.target.value)} placeholder="เช่น 1.2–1.8 ม." />
@@ -204,8 +211,25 @@ export function AdminFacilities() {
         </div>
       </div>
       <div className="space-y-1.5">
-        <Label>ค่าบริการ</Label>
+        <Label>ค่าบริการ (ข้อความแสดงผล)</Label>
         <Input value={form.priceInfo} onChange={e => set("priceInfo", e.target.value)} placeholder="เช่น สมาชิกฟรี / บุคคลทั่วไป 50 บาท" />
+      </div>
+
+      {/* Add-on package (แพ็คเกจเสริม) */}
+      <div className="rounded-lg border border-border p-3 space-y-3 bg-muted/30">
+        <div className="flex items-center justify-between">
+          <div>
+            <Label>เปิดให้สมาชิกสั่งซื้อ (แพ็คเกจเสริม)</Label>
+            <p className="text-xs text-muted-foreground mt-0.5">สมาชิกจะกดสั่งซื้อจากหน้าบริการอื่นๆ โดยตัดจากกระเป๋าเงิน</p>
+          </div>
+          <Switch checked={form.isPurchasable} onCheckedChange={v => set("isPurchasable", v)} />
+        </div>
+        {form.isPurchasable && (
+          <div className="space-y-1.5">
+            <Label>ราคา (บาท) *</Label>
+            <Input type="number" min={0} step="0.01" value={form.price} onChange={e => set("price", e.target.value)} placeholder="เช่น 500" />
+          </div>
+        )}
       </div>
       <div className="space-y-1.5">
         <Label>สิ่งอำนวยความสะดวก</Label>
@@ -286,11 +310,11 @@ export function AdminFacilities() {
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>เพิ่มสถานที่ใหม่</DialogTitle></DialogHeader>
-          <FormBody />
+          {FormBody()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>ยกเลิก</Button>
             <Button
-              disabled={createMutation.isPending || !form.name || !form.nameEn}
+              disabled={createMutation.isPending || !form.name || !form.nameEn || (form.isPurchasable && !form.price)}
               onClick={() => createMutation.mutate(form)}
             >
               {createMutation.isPending ? "กำลังบันทึก..." : "เพิ่มสถานที่"}
@@ -303,11 +327,11 @@ export function AdminFacilities() {
       <Dialog open={!!editTarget} onOpenChange={o => !o && setEditTarget(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>แก้ไขสถานที่</DialogTitle></DialogHeader>
-          <FormBody />
+          {FormBody()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditTarget(null)}>ยกเลิก</Button>
             <Button
-              disabled={updateMutation.isPending}
+              disabled={updateMutation.isPending || (form.isPurchasable && !form.price)}
               onClick={() => editTarget && updateMutation.mutate({ id: editTarget.id, data: form })}
             >
               {updateMutation.isPending ? "กำลังบันทึก..." : "บันทึก"}

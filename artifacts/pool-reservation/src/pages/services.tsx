@@ -1,26 +1,39 @@
-import { FC } from "react";
+import { FC, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 import {
-  Sparkles, Clock, Users, Waves, Ruler, MapPin, Phone, Tag, ListChecks, ScrollText, Building2, ExternalLink,
+  Sparkles, Clock, Users, Waves, Ruler, MapPin, Phone, Tag, ListChecks, ScrollText, Building2, ExternalLink, ShoppingBag, CheckCircle2,
 } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type Facility = {
   id: number; name: string; nameEn: string | null; description: string | null;
   capacity: number; openTime: string; closeTime: string; imageUrl: string | null;
   rules: string | null; location: string | null; phone: string | null; mapUrl: string | null;
   amenities: string | null; depth: string | null; lanes: number | null; priceInfo: string | null;
+  isPurchasable: boolean; price: number | null;
 };
+
+type MemberAddon = { id: number; facilityId: number; name: string; pricePaid: number; createdAt: string };
 
 const splitList = (s?: string | null) =>
   (s || "").split(/[,\n·]/).map((x) => x.trim()).filter(Boolean);
 
 export const Services: FC = () => {
+  const { toast } = useToast();
   const token = localStorage.getItem("pool_token");
   const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-  const { data: facilities, isLoading } = useQuery<Facility[]>({
+  const [buyTarget, setBuyTarget] = useState<Facility | null>(null);
+  const [buying, setBuying] = useState(false);
+
+  const { data: facilities, isLoading, refetch } = useQuery<Facility[]>({
     queryKey: ["facilities", "public"],
     queryFn: async () => {
       const res = await fetch(`${baseUrl}/api/facilities`, { headers: { Authorization: `Bearer ${token}` } });
@@ -28,6 +41,48 @@ export const Services: FC = () => {
       return res.json();
     },
   });
+
+  const { data: wallet } = useQuery<{ balance: number }>({
+    queryKey: ["wallet", "me"],
+    queryFn: async () => {
+      const res = await fetch(`${baseUrl}/api/wallet/me`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { balance: 0 };
+      return res.json();
+    },
+  });
+
+  const { data: myAddons, refetch: refetchAddons } = useQuery<MemberAddon[]>({
+    queryKey: ["facilities", "my-addons"],
+    queryFn: async () => {
+      const res = await fetch(`${baseUrl}/api/facilities/my-addons`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const purchasedCount = (facilityId: number) =>
+    (myAddons || []).filter((a) => a.facilityId === facilityId).length;
+
+  const handleBuy = async () => {
+    if (!buyTarget) return;
+    setBuying(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/facilities/${buyTarget.id}/purchase`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "ไม่สำเร็จ");
+      toast({ title: "สั่งซื้อสำเร็จ", description: buyTarget.name });
+      setBuyTarget(null);
+      refetch();
+      refetchAddons();
+    } catch (err: any) {
+      toast({ title: err.message, variant: "destructive" });
+    } finally {
+      setBuying(false);
+    }
+  };
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -106,6 +161,23 @@ export const Services: FC = () => {
                         <p className="text-xs text-amber-700 dark:text-amber-200/80 whitespace-pre-line">{f.rules}</p>
                       </div>
                     )}
+
+                    {/* Add-on package purchase (แพ็คเกจเสริม) */}
+                    {f.isPurchasable && f.price != null && (
+                      <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
+                        <div>
+                          <span className="text-2xl font-display font-extrabold text-gradient">฿{f.price.toLocaleString()}</span>
+                          {purchasedCount(f.id) > 0 && (
+                            <span className="ml-2 inline-flex items-center gap-1 text-xs text-emerald-600">
+                              <CheckCircle2 className="w-3.5 h-3.5" />ซื้อแล้ว {purchasedCount(f.id)} ครั้ง
+                            </span>
+                          )}
+                        </div>
+                        <Button size="sm" onClick={() => setBuyTarget(f)}>
+                          <ShoppingBag className="w-4 h-4 mr-2" />สั่งซื้อ
+                        </Button>
+                      </div>
+                    )}
                   </CardContent>
                 </div>
               </Card>
@@ -113,6 +185,32 @@ export const Services: FC = () => {
           })}
         </div>
       )}
+
+      {/* Purchase confirmation dialog */}
+      <AlertDialog open={!!buyTarget} onOpenChange={(o) => !o && setBuyTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>ยืนยันการสั่งซื้อแพ็คเกจเสริม</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">{buyTarget?.name}</span>
+              <span className="block text-lg font-bold text-primary">฿{(buyTarget?.price ?? 0).toLocaleString()}</span>
+              <span className="block text-sm">ยอดเงินคงเหลือ: ฿{(wallet?.balance ?? 0).toLocaleString("th-TH", { minimumFractionDigits: 2 })}</span>
+              {wallet && buyTarget?.price != null && wallet.balance < buyTarget.price && (
+                <span className="block text-red-500 text-sm">ยอดเงินไม่พอ กรุณาเติมเงินก่อน</span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleBuy(); }}
+              disabled={buying || (wallet && buyTarget?.price != null ? wallet.balance < buyTarget.price : false)}
+            >
+              {buying ? "กำลังสั่งซื้อ..." : "ยืนยันสั่งซื้อ"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

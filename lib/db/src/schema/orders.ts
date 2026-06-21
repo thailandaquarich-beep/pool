@@ -23,6 +23,7 @@ export const ordersTable = pgTable("orders", {
   paidAt: timestamp("paid_at", { withTimezone: true }),
   shippedAt: timestamp("shipped_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  branchId: integer("branch_id").default(1),
 });
 
 export type Order = typeof ordersTable.$inferSelect;

@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, boolean, timestamp, numeric } from "drizzle-orm/pg-core";
 
 export const facilitiesTable = pgTable("facilities", {
   id: serial("id").primaryKey(),
@@ -22,7 +22,11 @@ export const facilitiesTable = pgTable("facilities", {
   depth: text("depth"),
   lanes: integer("lanes"),
   priceInfo: text("price_info"),
+  // Add-on package (แพ็คเกจเสริม): members can buy this service directly from the Other Services page
+  isPurchasable: boolean("is_purchasable").notNull().default(false),
+  price: numeric("price", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  branchId: integer("branch_id").default(1),
 });
 
 export type Facility = typeof facilitiesTable.$inferSelect;

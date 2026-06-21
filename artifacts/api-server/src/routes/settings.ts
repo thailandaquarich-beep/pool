@@ -2,20 +2,23 @@ import { Router } from "express";
 import { db, settingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth.js";
+import { attachBranch, newRowBranch } from "../middlewares/branch.js";
 
 const router = Router();
 
-async function getOrCreateSettings() {
-  const rows = await db.select().from(settingsTable).limit(1);
+// Per-branch settings: one settings row per branch (hours, capacity, maintenance,
+// bank/PromptPay). Falls back to creating defaults the first time a branch is touched.
+async function getOrCreateSettings(branchId: number) {
+  const rows = await db.select().from(settingsTable).where(eq(settingsTable.branchId, branchId)).limit(1);
   if (rows.length > 0) return rows[0];
-  const [created] = await db.insert(settingsTable).values({}).returning();
+  const [created] = await db.insert(settingsTable).values({ branchId }).returning();
   return created;
 }
 
 // GET /settings
-router.get("/", authenticate, async (req, res) => {
+router.get("/", authenticate, attachBranch, async (req, res) => {
   try {
-    const settings = await getOrCreateSettings();
+    const settings = await getOrCreateSettings(newRowBranch(req));
     return res.json(settings);
   } catch {
     return res.status(500).json({ error: "Failed to get settings" });
@@ -23,9 +26,9 @@ router.get("/", authenticate, async (req, res) => {
 });
 
 // PATCH /settings — admin only
-router.patch("/", authenticate, requireAdmin, async (req, res) => {
+router.patch("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
-    const existing = await getOrCreateSettings();
+    const existing = await getOrCreateSettings(newRowBranch(req));
     const {
       bookingEnabled,
       openTime,

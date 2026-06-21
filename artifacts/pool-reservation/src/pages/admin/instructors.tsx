@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { GraduationCap, Plus, Phone, Mail, Pencil, Trash2, KeyRound } from "lucide-react";
+import { ImageUpload } from "@/components/image-upload";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
 
@@ -37,11 +38,13 @@ type InstructorForm = {
   experience: string;
   biography: string;
   status: "active" | "on_leave" | "inactive";
+  profileImageUrl: string;
 };
 
 const emptyForm = (): InstructorForm => ({
   firstName: "", lastName: "", phone: "", email: "",
   specialty: "", certification: "", experience: "", biography: "", status: "active",
+  profileImageUrl: "",
 });
 
 const statusConfig = {
@@ -152,7 +155,7 @@ export function AdminInstructors() {
       phone: inst.phone ?? "", email: inst.email ?? "",
       specialty: inst.specialty ?? "", certification: inst.certification ?? "",
       experience: inst.experience ?? "", biography: inst.biography ?? "",
-      status: inst.status,
+      status: inst.status, profileImageUrl: (inst as any).profileImageUrl ?? "",
     });
     setEditTarget(inst);
   }
@@ -162,6 +165,10 @@ export function AdminInstructors() {
 
   const FormBody = () => (
     <div className="space-y-4">
+      <div className="space-y-1.5">
+        <Label>รูปครูฝึก</Label>
+        <ImageUpload value={form.profileImageUrl} onChange={(v) => set("profileImageUrl", v ?? "")} shape="circle" maxMb={3} />
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label>ชื่อ *</Label>
@@ -289,7 +296,7 @@ export function AdminInstructors() {
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>เพิ่มครูฝึกใหม่</DialogTitle></DialogHeader>
-          <FormBody />
+          {FormBody()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>ยกเลิก</Button>
             <Button disabled={createMutation.isPending || !form.firstName || !form.lastName} onClick={() => createMutation.mutate(form)}>
@@ -303,7 +310,7 @@ export function AdminInstructors() {
       <Dialog open={!!editTarget} onOpenChange={o => !o && setEditTarget(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>แก้ไขข้อมูลครูฝึก</DialogTitle></DialogHeader>
-          <FormBody />
+          {FormBody()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditTarget(null)}>ยกเลิก</Button>
             <Button disabled={updateMutation.isPending} onClick={() => editTarget && updateMutation.mutate({ id: editTarget.id, data: form })}>

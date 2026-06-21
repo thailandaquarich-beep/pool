@@ -2,9 +2,11 @@ import { Router } from "express";
 import { db, reservationsTable, usersTable, settingsTable, instructorsTable } from "@workspace/db";
 import { eq, and, gte, lte, sql, or, inArray } from "drizzle-orm";
 import { authenticate, requireAdmin, isAdminRole } from "../middlewares/auth.js";
+import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
 import { consumeUse, refundUseForReservation, hasQuota, NoQuotaError } from "../lib/packageUsage.js";
 import { logUsage } from "../lib/usageLog.js";
 import { memberCode } from "../lib/memberCode.js";
+import { appendMemberLog } from "../lib/memberLog.js";
 
 const router = Router();
 
@@ -55,20 +57,21 @@ function timesOverlap(s1: string, e1: string, s2: string, e2: string) {
   return timeToMinutes(s1) < timeToMinutes(e2) && timeToMinutes(e1) > timeToMinutes(s2);
 }
 
-async function getSettings() {
-  const rows = await db.select().from(settingsTable).limit(1);
+// Per-branch settings: each branch has its own hours/capacity/maintenance row.
+async function getSettings(branchId: number) {
+  const rows = await db.select().from(settingsTable).where(eq(settingsTable.branchId, branchId)).limit(1);
   if (rows.length > 0) return rows[0];
-  const [defaultSettings] = await db.insert(settingsTable).values({}).returning();
+  const [defaultSettings] = await db.insert(settingsTable).values({ branchId }).returning();
   return defaultSettings;
 }
 
 // GET /reservations/available-slots
-router.get("/available-slots", authenticate, async (req, res) => {
+router.get("/available-slots", authenticate, attachBranch, async (req, res) => {
   try {
     const date = req.query.date as string;
     if (!date) return res.status(400).json({ error: "date is required" });
 
-    const settings = await getSettings();
+    const settings = await getSettings(newRowBranch(req));
     const openMins = timeToMinutes(settings.openTime);
     const closeMins = timeToMinutes(settings.closeTime);
     const duration = settings.slotDurationMinutes;
@@ -85,7 +88,8 @@ router.get("/available-slots", authenticate, async (req, res) => {
         .where(
           and(
             eq(reservationsTable.date, date),
-            inArray(reservationsTable.status, ["confirmed", "pending"])
+            inArray(reservationsTable.status, ["confirmed", "pending"]),
+            branchEq(req, reservationsTable.branchId)
           )
         );
 
@@ -189,7 +193,7 @@ router.get("/upcoming", authenticate, async (req, res) => {
 });
 
 // GET /reservations
-router.get("/", authenticate, async (req, res) => {
+router.get("/", authenticate, attachBranch, async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(100, parseInt(req.query.limit as string) || 20);
@@ -210,10 +214,16 @@ router.get("/", authenticate, async (req, res) => {
     if (date) conditions.push(eq(reservationsTable.date, date));
     if (startDate) conditions.push(gte(reservationsTable.date, startDate));
     if (endDate) conditions.push(lte(reservationsTable.date, endDate));
-    if (status) conditions.push(eq(reservationsTable.status, status as "confirmed" | "pending" | "cancelled" | "maintenance"));
+    // status accepts a single value ("cancelled") or a comma list ("confirmed,pending")
+    // so dashboard cards like "upcoming" (confirmed + pending) can deep-link exactly.
+    if (status) {
+      const statuses = String(status).split(",").map((s) => s.trim()).filter(Boolean) as ("confirmed" | "pending" | "cancelled" | "maintenance")[];
+      if (statuses.length === 1) conditions.push(eq(reservationsTable.status, statuses[0]));
+      else if (statuses.length > 1) conditions.push(inArray(reservationsTable.status, statuses));
+    }
     if (userId && isAdminRole(req.user!.role)) conditions.push(eq(reservationsTable.userId, userId));
 
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    const whereClause = and(branchEq(req, reservationsTable.branchId), ...conditions);
 
     const reservationsRaw = await db
       .select()
@@ -248,13 +258,13 @@ router.get("/", authenticate, async (req, res) => {
 });
 
 // POST /reservations
-router.post("/", authenticate, async (req, res) => {
+router.post("/", authenticate, attachBranch, async (req, res) => {
   try {
     const { date, startTime, endTime, numberOfPeople, notes, instructorId } = req.body;
     if (!date || !startTime || !endTime) {
       return res.status(400).json({ error: "date, startTime และ endTime จำเป็นต้องระบุ" });
     }
-    const settings = await getSettings();
+    const settings = await getSettings(newRowBranch(req));
 
     // Validate the chosen instructor (optional) — must exist and be active.
     let instructor: InstructorRow | null = null;
@@ -290,7 +300,8 @@ router.post("/", authenticate, async (req, res) => {
       .where(
         and(
           eq(reservationsTable.date, date),
-          inArray(reservationsTable.status, ["confirmed", "pending"])
+          inArray(reservationsTable.status, ["confirmed", "pending"]),
+          branchEq(req, reservationsTable.branchId)
         )
       );
 
@@ -323,7 +334,7 @@ router.post("/", authenticate, async (req, res) => {
       const result = await db.transaction(async (tx) => {
         const [r] = await tx
           .insert(reservationsTable)
-          .values({ userId, date, startTime, endTime, numberOfPeople, instructorId: instructor?.id ?? null, status: autoConfirm ? "confirmed" : "pending", notes })
+          .values({ userId, date, startTime, endTime, numberOfPeople, instructorId: instructor?.id ?? null, status: autoConfirm ? "confirmed" : "pending", notes, branchId: newRowBranch(req) })
           .returning();
 
         if (autoConfirm) {
@@ -352,6 +363,11 @@ router.post("/", authenticate, async (req, res) => {
         detail: `จอง (ยืนยันอัตโนมัติ) ${date} ${startTime}-${endTime}`,
       });
     }
+
+    await appendMemberLog({ userId }, "activity", {
+      action: "booking", date, startTime, endTime, numberOfPeople, status: reservation.status,
+    });
+
     return res.status(201).json({
       ...formatReservation(reservation, user, instructor),
       autoConfirmed: autoConfirm,
@@ -399,27 +415,34 @@ router.patch("/:id", authenticate, async (req, res) => {
     if (numberOfPeople) updates.numberOfPeople = numberOfPeople;
     if (instructorId !== undefined) updates.instructorId = instructorId;
 
-    const isConfirming = updates.status === "confirmed" && existing.status !== "confirmed";
-    const isCancelling = updates.status === "cancelled" && existing.status !== "cancelled";
-
-    // Confirming a booking (which deducts a use) is an admin-only action.
-    if (isConfirming && !isAdminRole(req.user!.role)) {
+    // Permission gate (admin-only confirm) uses the pre-read row; the authoritative deduction
+    // below re-reads the row under a lock so concurrent confirms can't double-charge.
+    const wantsConfirm = updates.status === "confirmed" && existing.status !== "confirmed";
+    if (wantsConfirm && !isAdminRole(req.user!.role)) {
       return res.status(403).json({ error: "ต้องให้แอดมินยืนยันการจอง" });
     }
 
-    let updated: typeof reservationsTable.$inferSelect;
+    let updated: typeof reservationsTable.$inferSelect | null;
+    let didConfirm = false;
     try {
       updated = await db.transaction(async (tx) => {
+        // Lock the row and decide from this fresh copy — never the stale pre-read — so a
+        // simultaneous instructor confirm (PATCH /me/bookings/:id) can't double-deduct.
+        const [fresh] = await tx.select().from(reservationsTable).where(eq(reservationsTable.id, id)).limit(1).for("update");
+        if (!fresh) return null;
+        const confirming = updates.status === "confirmed" && fresh.status !== "confirmed";
+        const cancelling = updates.status === "cancelled" && fresh.status !== "cancelled";
         // On confirm, deduct one use from the member's package (once).
-        if (isConfirming && !existing.memberPackageId) {
-          const consumed = await consumeUse(tx, existing.userId, { source: "booking", reservationId: id, note: `ยืนยันการจอง ${existing.date} ${existing.startTime}-${existing.endTime}` });
+        if (confirming && !fresh.memberPackageId) {
+          const consumed = await consumeUse(tx, fresh.userId, { source: "booking", reservationId: id, note: `ยืนยันการจอง ${fresh.date} ${fresh.startTime}-${fresh.endTime}` });
           updates.memberPackageId = consumed.memberPackageId;
         }
         const [u] = await tx.update(reservationsTable).set(updates).where(eq(reservationsTable.id, id)).returning();
         // Cancelling a confirmed booking returns the use to the member.
-        if (isCancelling) {
+        if (cancelling) {
           await refundUseForReservation(tx, id);
         }
+        didConfirm = confirming;
         return u;
       });
     } catch (err) {
@@ -428,11 +451,12 @@ router.patch("/:id", authenticate, async (req, res) => {
       }
       throw err;
     }
+    if (!updated) return res.status(404).json({ error: "Reservation not found" });
 
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, updated.userId)).limit(1);
     const instructorsMap = await getInstructorsMap([updated]);
 
-    if (isConfirming) {
+    if (didConfirm) {
       await logUsage({
         userId: existing.userId,
         memberCode: memberCode(existing.userId),

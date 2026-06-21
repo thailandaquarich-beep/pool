@@ -14,7 +14,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/page-header";
-import { ShoppingBag, Plus, Pencil, Trash2 } from "lucide-react";
+import { ShoppingBag, Plus, Pencil, Trash2, Minus } from "lucide-react";
+import { ImageUpload } from "@/components/image-upload";
 import { cn } from "@/lib/utils";
 
 type Product = {
@@ -40,11 +41,27 @@ export function AdminProducts() {
 
   const { data: products, isLoading } = useQuery<Product[]>({
     queryKey: ["products", "all"],
+    refetchInterval: 15000, // near real-time stock view
     queryFn: async () => {
       const res = await fetch(`${baseUrl}/api/products/all`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
+  });
+
+  // Quick stock +/- adjust (sends the resulting absolute value)
+  const adjustStock = useMutation({
+    mutationFn: async ({ id, stock }: { id: number; stock: number }) => {
+      const res = await fetch(`${baseUrl}/api/products/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ stock }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["products"] }),
+    onError: () => toast({ title: "ปรับสต็อกไม่สำเร็จ", variant: "destructive" }),
   });
 
   const save = useMutation({
@@ -81,11 +98,12 @@ export function AdminProducts() {
   const remove = useMutation({
     mutationFn: async (id: number) => {
       const res = await fetch(`${baseUrl}/api/products/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error("Failed");
-      return res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed");
+      return data;
     },
-    onSuccess: () => { toast({ title: "ปิดการขายแล้ว" }); qc.invalidateQueries({ queryKey: ["products"] }); setDeleteTarget(null); },
-    onError: () => toast({ title: "เกิดข้อผิดพลาด", variant: "destructive" }),
+    onSuccess: () => { toast({ title: "ลบผลิตภัณฑ์แล้ว" }); qc.invalidateQueries({ queryKey: ["products"] }); setDeleteTarget(null); },
+    onError: (e: any) => toast({ title: e.message || "เกิดข้อผิดพลาด", variant: "destructive" }),
   });
 
   function openEdit(p: Product) {
@@ -108,7 +126,7 @@ export function AdminProducts() {
         <div className="space-y-1.5"><Label>ราคา (บาท)</Label><Input type="number" min={0} value={form.price} onChange={e => set("price", e.target.value)} /></div>
       </div>
       <div className="space-y-1.5"><Label>คำอธิบาย</Label><Textarea value={form.description} onChange={e => set("description", e.target.value)} rows={2} /></div>
-      <div className="space-y-1.5"><Label>รูปภาพ (URL)</Label><Input value={form.imageUrl} onChange={e => set("imageUrl", e.target.value)} placeholder="https://..." /></div>
+      <div className="space-y-1.5"><Label>รูปภาพสินค้า</Label><ImageUpload value={form.imageUrl} onChange={(v) => set("imageUrl", v ?? "")} shape="wide" maxMb={5} /></div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5"><Label>สต็อก (เว้นว่าง = ไม่จำกัด)</Label><Input type="number" min={0} value={form.stock} onChange={e => set("stock", e.target.value)} /></div>
         <div className="space-y-1.5"><Label>ลำดับการแสดง</Label><Input type="number" value={form.sortOrder} onChange={e => set("sortOrder", e.target.value)} /></div>
@@ -152,7 +170,19 @@ export function AdminProducts() {
                   <div className="text-lg font-bold text-primary shrink-0">฿{p.price.toLocaleString()}</div>
                 </div>
                 {p.description && <p className="text-xs text-muted-foreground line-clamp-2">{p.description}</p>}
-                <div className="text-xs text-muted-foreground">สต็อก: {p.stock != null ? p.stock : "ไม่จำกัด"}</div>
+                {/* Stock with quick +/- adjust */}
+                {p.stock != null ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">สต็อก:</span>
+                    <Button size="icon" variant="outline" className="h-6 w-6" disabled={adjustStock.isPending || p.stock <= 0} onClick={() => adjustStock.mutate({ id: p.id, stock: p.stock! - 1 })}><Minus className="w-3 h-3" /></Button>
+                    <span className={cn("text-sm font-bold w-9 text-center tabular-nums", p.stock <= 0 ? "text-destructive" : p.stock <= 5 ? "text-amber-600" : "")}>{p.stock}</span>
+                    <Button size="icon" variant="outline" className="h-6 w-6" disabled={adjustStock.isPending} onClick={() => adjustStock.mutate({ id: p.id, stock: p.stock! + 1 })}><Plus className="w-3 h-3" /></Button>
+                    {p.stock <= 0 && <Badge variant="destructive" className="text-[10px]">สินค้าหมด</Badge>}
+                    {p.stock > 0 && p.stock <= 5 && <Badge className="text-[10px] bg-amber-500 text-white">ใกล้หมด</Badge>}
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground">สต็อก: ไม่จำกัด</div>
+                )}
                 <div className="flex items-center justify-between pt-2 border-t border-border">
                   <div className="flex items-center gap-1.5">
                     <Switch checked={p.isActive} onCheckedChange={v => toggleActive.mutate({ id: p.id, isActive: v })} />
@@ -173,7 +203,7 @@ export function AdminProducts() {
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>เพิ่มผลิตภัณฑ์ใหม่</DialogTitle></DialogHeader>
-          <FormBody />
+          {FormBody()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>ยกเลิก</Button>
             <Button disabled={save.isPending || !form.name} onClick={() => save.mutate({ data: form })}>{save.isPending ? "กำลังบันทึก..." : "เพิ่ม"}</Button>
@@ -185,7 +215,7 @@ export function AdminProducts() {
       <Dialog open={!!editTarget} onOpenChange={o => !o && setEditTarget(null)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>แก้ไขผลิตภัณฑ์</DialogTitle></DialogHeader>
-          <FormBody />
+          {FormBody()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditTarget(null)}>ยกเลิก</Button>
             <Button disabled={save.isPending} onClick={() => editTarget && save.mutate({ id: editTarget.id, data: form })}>{save.isPending ? "กำลังบันทึก..." : "บันทึก"}</Button>
@@ -197,12 +227,12 @@ export function AdminProducts() {
       <AlertDialog open={!!deleteTarget} onOpenChange={o => !o && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>ปิดการขายผลิตภัณฑ์</AlertDialogTitle>
-            <AlertDialogDescription>ต้องการปิดการขาย <span className="font-semibold">{deleteTarget?.name}</span>?</AlertDialogDescription>
+            <AlertDialogTitle>ลบผลิตภัณฑ์</AlertDialogTitle>
+            <AlertDialogDescription>ต้องการลบ <span className="font-semibold">{deleteTarget?.name}</span> ออกถาวร? การกระทำนี้ย้อนกลับไม่ได้ (ถ้าต้องการแค่ซ่อนชั่วคราว ให้ปิดสวิตช์ "ขายอยู่" แทน)</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>ยกเลิก</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => deleteTarget && remove.mutate(deleteTarget.id)}>ยืนยัน</AlertDialogAction>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={(e) => { e.preventDefault(); deleteTarget && remove.mutate(deleteTarget.id); }} disabled={remove.isPending}>{remove.isPending ? "กำลังลบ..." : "ลบถาวร"}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

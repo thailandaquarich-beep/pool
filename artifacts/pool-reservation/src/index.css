@@ -81,19 +81,22 @@
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
 
-  --background: 205 45% 98%;
-  --foreground: 222 47% 11%;
+  /* Soft cool off-white — easy on the eyes in bright morning light (was 45% 98%, too glaring) */
+  --background: 205 36% 96%;
+  --foreground: 222 44% 13%;
 
   --border: 214 32% 90%;
   --input: 214 32% 90%;
   --ring: 196 90% 44%;
 
-  --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
+  /* Near-white with a faint cool tint instead of pure white — sits gently above the
+     background (still clearly elevated) without the harsh glare of #fff. */
+  --card: 200 33% 99%;
+  --card-foreground: 222 44% 13%;
   --card-border: 214 32% 91%;
 
-  --popover: 0 0% 100%;
-  --popover-foreground: 222 47% 11%;
+  --popover: 200 33% 99%;
+  --popover-foreground: 222 44% 13%;
   --popover-border: 214 32% 91%;
 
   --primary: 196 90% 42%;
@@ -111,8 +114,8 @@
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
 
-  --sidebar: 0 0% 100%;
-  --sidebar-foreground: 222 47% 11%;
+  --sidebar: 205 30% 98%;
+  --sidebar-foreground: 222 44% 13%;
   --sidebar-border: 214 32% 91%;
   --sidebar-primary: 196 90% 42%;
   --sidebar-primary-foreground: 0 0% 100%;
@@ -125,6 +128,11 @@
   --brand-via: 196 92% 47%;
   --brand-to: 168 84% 42%;
   --glow: 196 92% 47%;
+
+  /* Warm accent — gold/amber paired with the ocean brand (the ~10% highlight) */
+  --gold: 43 96% 52%;
+  --gold-soft: 45 95% 62%;
+  --gold-deep: 38 95% 46%;
 
   /* Aqua spectrum charts */
   --chart-1: 199 89% 48%;
@@ -200,6 +208,11 @@
   --brand-to: 167 82% 50%;
   --glow: 195 92% 56%;
 
+  /* Warm accent — a touch brighter on dark surfaces */
+  --gold: 45 95% 58%;
+  --gold-soft: 47 96% 66%;
+  --gold-deep: 40 94% 52%;
+
   --chart-1: 199 89% 55%;
   --chart-2: 187 85% 52%;
   --chart-3: 168 78% 50%;
@@ -242,6 +255,42 @@
   animation: text-shine 6s linear infinite;
 }
 @keyframes text-shine { to { background-position: 200% center; } }
+
+/* ---- Gold / warm accent (paired with the ocean brand) ---- */
+.text-gold { color: hsl(var(--gold)); }
+/* Aqua → gold shimmering text, for special highlight words */
+.text-gradient-gold {
+  background-image: linear-gradient(110deg,
+    hsl(var(--brand-via)), hsl(var(--gold-soft)) 45%, hsl(var(--gold)), hsl(var(--brand-via)));
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: text-shine 6s linear infinite;
+}
+/* Solid gold surface with a glossy top highlight (for badges / pills) */
+.bg-gold {
+  background-image:
+    radial-gradient(120% 120% at 0% 0%, hsl(0 0% 100% / 0.45), transparent 45%),
+    linear-gradient(135deg, hsl(var(--gold-soft)), hsl(var(--gold)) 55%, hsl(var(--gold-deep)));
+  color: hsl(38 70% 18%);
+}
+/* Faint gold wash for soft cards / chips */
+.bg-gold-soft {
+  background-image: linear-gradient(135deg, hsl(var(--gold) / 0.16), hsl(var(--gold-soft) / 0.10));
+}
+/* Ocean → gold gradient surface — premium hero accents */
+.bg-brand-gold {
+  background-image:
+    radial-gradient(120% 120% at 0% 0%, hsl(0 0% 100% / 0.22), transparent 45%),
+    linear-gradient(120deg, hsl(var(--brand-from)), hsl(var(--brand-via)) 45%, hsl(var(--gold)) 105%);
+}
+.glow-gold    { box-shadow: 0 12px 34px -14px hsl(var(--gold) / 0.55), 0 0 0 1px hsl(var(--gold) / 0.25); }
+.ring-gold    { box-shadow: 0 0 0 1px hsl(var(--gold) / 0.45); }
+.divider-gold {
+  height: 3px; width: 4rem; border-radius: 999px;
+  background: linear-gradient(90deg, transparent, hsl(var(--gold)), transparent);
+}
 
 /* ---- Brand gradient surfaces ---- */
 .bg-brand {
@@ -297,6 +346,7 @@
   background-color: hsl(var(--background));
   background-image:
     radial-gradient(60% 50% at 12% 8%,  hsl(var(--brand-from) / 0.20), transparent 60%),
+    radial-gradient(45% 40% at 92% 88%, hsl(var(--gold) / 0.14), transparent 60%),
     radial-gradient(55% 45% at 88% 14%, hsl(var(--brand-via) / 0.18), transparent 60%),
     radial-gradient(60% 55% at 50% 100%, hsl(var(--brand-to) / 0.16), transparent 60%);
 }
@@ -342,8 +392,8 @@
 }
 
 /* ---- Floating decorative blobs ---- */
-.animate-float      { animation: float 8s ease-in-out infinite; }
-.animate-float-slow { animation: float 13s ease-in-out infinite; }
+.animate-float      { animation: float 8s ease-in-out infinite; will-change: transform; }
+.animate-float-slow { animation: float 13s ease-in-out infinite; will-change: transform; }
 @keyframes float {
   0%, 100% { transform: translateY(0) translateX(0); }
   50%      { transform: translateY(-24px) translateX(12px); }
@@ -356,16 +406,30 @@
   to   { opacity: 1; transform: none; }
 }
 
+/* ---- Page transition (cheap: opacity + transform only) ---- */
+.animate-page { animation: page-in .2s ease-out both; }
+@keyframes page-in {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
 /* ---- Interactive ambient background (global app shell) ---- */
-.ambient { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+/* contain + GPU isolation so it never repaints page content while scrolling */
+.ambient { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; contain: strict; transform: translateZ(0); }
 .ambient__mesh {
-  position: absolute; inset: -12%;
+  position: absolute; inset: -30%;
   background-image:
     radial-gradient(42% 38% at 18% 10%, hsl(var(--brand-from) / 0.18), transparent 60%),
     radial-gradient(40% 34% at 84% 16%, hsl(var(--brand-via) / 0.16), transparent 60%),
     radial-gradient(48% 44% at 52% 106%, hsl(var(--brand-to) / 0.16), transparent 60%);
-  background-size: 170% 170%, 170% 170%, 170% 170%;
-  animation: aurora-pan 26s ease-in-out infinite;
+  /* drift via transform (GPU-composited) instead of background-position (full repaint) */
+  will-change: transform;
+  transform: translateZ(0);
+  animation: ambient-drift 30s ease-in-out infinite alternate;
+}
+@keyframes ambient-drift {
+  from { transform: translate3d(-1.5%, -1%, 0) scale(1.06); }
+  to   { transform: translate3d(2.5%, 1.5%, 0) scale(1.12); }
 }
 /* faint engineering grid, faded out toward the edges */
 .ambient__grid {
@@ -424,7 +488,7 @@ html { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) {
   .text-gradient-shine, .bg-brand-animated, .bg-aurora-animated,
   .sheen::after, .animate-float, .animate-float-slow, .animate-rise,
-  .ambient__mesh, .ambient__ripple {
+  .animate-page, .ambient__mesh, .ambient__ripple {
     animation: none !important;
   }
   .ambient__cursor { display: none; }

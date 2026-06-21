@@ -6,10 +6,11 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { QrCode, Camera, CameraOff, UserCheck, CheckCircle2, XCircle, Ticket, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MemberAvatar } from "@/components/member-avatar";
 
 type LookupData = {
   code: string;
-  user: { id: number; firstName: string; lastName: string; houseNumber: string | null };
+  user: { id: number; firstName: string; lastName: string; houseNumber: string | null; profileImageUrl?: string | null };
   hasQuota: boolean;
   totalRemaining: number | null;
   packageName: string | null;
@@ -167,9 +168,7 @@ export function AdminCheckinScan() {
         <Card className="rounded-2xl border-primary/40 ring-2 ring-primary/10">
           <CardContent className="p-5 space-y-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold">
-                {lookup.user.firstName?.[0]}{lookup.user.lastName?.[0]}
-              </div>
+              <MemberAvatar firstName={lookup.user.firstName} lastName={lookup.user.lastName} src={lookup.user.profileImageUrl} className="w-12 h-12 text-base" />
               <div className="flex-1">
                 <div className="font-bold text-lg">{lookup.user.firstName} {lookup.user.lastName}</div>
                 <div className="text-xs text-muted-foreground">บ้านเลขที่ {lookup.user.houseNumber ?? "-"}</div>

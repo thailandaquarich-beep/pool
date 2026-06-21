@@ -2,12 +2,14 @@ import { Router } from "express";
 import { db, chatTicketsTable, chatMessagesTable, usersTable } from "@workspace/db";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth.js";
+import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
 import { maybeAiReply } from "../lib/ai-assistant.js";
+import { appendMemberLog } from "../lib/memberLog.js";
 
 const router = Router();
 
 // POST /chat/tickets — member: create ticket
-router.post("/tickets", authenticate, async (req, res) => {
+router.post("/tickets", authenticate, attachBranch, async (req, res) => {
   try {
     const { subject, type, message } = req.body;
     if (!subject || !message) return res.status(400).json({ error: "subject and message required" });
@@ -16,6 +18,7 @@ router.post("/tickets", authenticate, async (req, res) => {
       userId: req.user!.userId,
       subject,
       type: type || "question",
+      branchId: newRowBranch(req),
     }).returning();
 
     const [msg] = await db.insert(chatMessagesTable).values({
@@ -25,6 +28,10 @@ router.post("/tickets", authenticate, async (req, res) => {
       isAdminMessage: false,
     }).returning();
 
+    await appendMemberLog({ userId: ticket.userId }, "admin-chat", {
+      ticketId: ticket.id, subject: ticket.subject, from: "member", message,
+    });
+
     void maybeAiReply(ticket.id); // AI first-responder (fire-and-forget; no-op unless AI_CHAT_ENABLED)
     return res.status(201).json({ ticket: { ...ticket, createdAt: ticket.createdAt.toISOString(), updatedAt: ticket.updatedAt.toISOString(), closedAt: null }, firstMessage: { ...msg, createdAt: msg.createdAt.toISOString() } });
   } catch {
@@ -33,28 +40,29 @@ router.post("/tickets", authenticate, async (req, res) => {
 });
 
 // GET /chat/tickets — member: my tickets / admin: all tickets
-router.get("/tickets", authenticate, async (req, res) => {
+router.get("/tickets", authenticate, attachBranch, async (req, res) => {
   try {
     const isAdmin = req.user!.role === "admin" || req.user!.role === "super_admin";
     const status = req.query.status as string | undefined;
 
-    let query = db
+    // members see only their own tickets; admins see their branch (super_admin = all).
+    const where = and(
+      isAdmin ? branchEq(req, chatTicketsTable.branchId) : eq(chatTicketsTable.userId, req.user!.userId),
+      status ? eq(chatTicketsTable.status, status as any) : undefined,
+    );
+
+    const rows = await db
       .select({
         ticket: chatTicketsTable,
-        user: { id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName },
+        user: { id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName, profileImageUrl: usersTable.profileImageUrl },
         messageCount: sql<number>`count(${chatMessagesTable.id})::int`,
         lastMessage: sql<string>`max(${chatMessagesTable.createdAt}::text)`,
       })
       .from(chatTicketsTable)
       .leftJoin(chatMessagesTable, eq(chatMessagesTable.ticketId, chatTicketsTable.id))
       .innerJoin(usersTable, eq(chatTicketsTable.userId, usersTable.id))
-      .$dynamic();
-
-    if (!isAdmin) query = query.where(eq(chatTicketsTable.userId, req.user!.userId)) as any;
-    if (status) query = query.where(eq(chatTicketsTable.status, status as any)) as any;
-
-    const rows = await (query as any)
-      .groupBy(chatTicketsTable.id, usersTable.id, usersTable.firstName, usersTable.lastName)
+      .where(where)
+      .groupBy(chatTicketsTable.id, usersTable.id, usersTable.firstName, usersTable.lastName, usersTable.profileImageUrl)
       .orderBy(desc(chatTicketsTable.updatedAt))
       .limit(100);
 
@@ -82,7 +90,7 @@ router.get("/tickets/:id/messages", authenticate, async (req, res) => {
     if (!isAdmin && ticket.userId !== req.user!.userId) return res.status(403).json({ error: "Forbidden" });
 
     const messages = await db
-      .select({ msg: chatMessagesTable, sender: { id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName, role: usersTable.role } })
+      .select({ msg: chatMessagesTable, sender: { id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName, role: usersTable.role, profileImageUrl: usersTable.profileImageUrl } })
       .from(chatMessagesTable)
       .innerJoin(usersTable, eq(chatMessagesTable.senderId, usersTable.id))
       .where(eq(chatMessagesTable.ticketId, ticketId))
@@ -121,6 +129,10 @@ router.post("/tickets/:id/messages", authenticate, async (req, res) => {
     }).returning();
 
     await db.update(chatTicketsTable).set({ updatedAt: new Date(), status: isAdmin ? "in_progress" : "open" }).where(eq(chatTicketsTable.id, ticketId));
+
+    await appendMemberLog({ userId: ticket.userId }, "admin-chat", {
+      ticketId, subject: ticket.subject, from: isAdmin ? "admin" : "member", message: message || "", imageUrl: imageUrl || undefined,
+    });
 
     if (!isAdmin) void maybeAiReply(ticketId); // member replied -> AI may answer (no-op unless enabled)
     return res.status(201).json({ ...msg, createdAt: msg.createdAt.toISOString() });

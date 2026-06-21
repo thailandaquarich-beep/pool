@@ -12,6 +12,7 @@ export const packageUsagesTable = pgTable("package_usages", {
   source: text("source").notNull().default("booking"), // "booking" | "checkin"
   note: text("note"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  branchId: integer("branch_id").default(1),
 });
 
 export type PackageUsage = typeof packageUsagesTable.$inferSelect;

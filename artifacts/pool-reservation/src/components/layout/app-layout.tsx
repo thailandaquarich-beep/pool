@@ -1,4 +1,5 @@
-import { FC, ReactNode } from "react";
+import { FC, ReactNode, useEffect, useRef } from "react";
+import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
@@ -11,6 +12,13 @@ interface AppLayoutProps {
 
 export const AppLayout: FC<AppLayoutProps> = ({ children }) => {
   const { isAuthenticated } = useAuth();
+  const [location] = useLocation();
+  const mainRef = useRef<HTMLElement>(null);
+
+  // On every route change, jump the scroller back to the top so each page starts fresh.
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, [location]);
 
   if (!isAuthenticated) {
     return <div className="min-h-screen bg-background flex flex-col">{children}</div>;
@@ -23,8 +31,11 @@ export const AppLayout: FC<AppLayoutProps> = ({ children }) => {
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative z-10">
         <Header />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
-          {children}
+        <main ref={mainRef} className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 lg:p-8">
+          {/* keyed wrapper → quick GPU fade/slide on each navigation */}
+          <div key={location} className="animate-page">
+            {children}
+          </div>
         </main>
       </div>
       <AssistantWidget />

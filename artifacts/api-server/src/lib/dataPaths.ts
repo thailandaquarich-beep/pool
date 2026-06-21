@@ -10,6 +10,7 @@ const ROOT = process.env.DATA_DIR
 export const dataDirs = {
   root: ROOT,
   customers: path.join(ROOT, "customers"), // user data backups (JSON)
+  members: path.join(ROOT, "members"), // per-member folders (named ART#####) with that member's logs
   slips: path.join(ROOT, "slips"), // payment slips uploaded by members
   usageLogs: path.join(ROOT, "usage-logs"), // actual visit/check-in records per day
   backups: path.join(ROOT, "backups"), // full database snapshots
@@ -19,7 +20,7 @@ export const dataDirs = {
 
 export async function ensureDataDirs(): Promise<void> {
   await Promise.all(
-    [dataDirs.customers, dataDirs.slips, dataDirs.usageLogs, dataDirs.backups, dataDirs.chatLogs, dataDirs.sales].map((d) =>
+    [dataDirs.customers, dataDirs.members, dataDirs.slips, dataDirs.usageLogs, dataDirs.backups, dataDirs.chatLogs, dataDirs.sales].map((d) =>
       fs.mkdir(d, { recursive: true }),
     ),
   );

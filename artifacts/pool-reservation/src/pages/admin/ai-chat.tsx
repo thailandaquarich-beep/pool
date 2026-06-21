@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { PageHeader } from "@/components/page-header";
 import { Bot, MessageSquare, Users, Headset } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MemberAvatar } from "@/components/member-avatar";
 
 const intentLabel: Record<string, string> = {
   booking: "จองสระ", topup: "เติมเงิน", package: "แพ็กเกจ", cancel: "ยกเลิก/คืนเงิน",
@@ -14,7 +15,7 @@ const intentLabel: Record<string, string> = {
 };
 
 type Customer = {
-  userId: number | null; name: string | null; memberCode: string | null;
+  userId: number | null; name: string | null; memberCode: string | null; profileImageUrl?: string | null;
   messageCount: number; escalated: boolean; topIntent: string; lastMessage: string; lastAt: string;
   intents: Record<string, number>;
 };
@@ -101,15 +102,18 @@ export function AdminAiChat() {
                 {!data?.customers.length ? <p className="text-sm text-muted-foreground py-4 text-center">ยังไม่มีบทสนทนา</p> :
                   data.customers.map((c) => (
                     <button key={String(c.userId)} onClick={() => setSelected(c)}
-                      className="w-full text-left p-3 rounded-xl border border-border hover:bg-muted/40 transition-colors">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium truncate">{c.name ?? "ผู้ใช้ไม่ระบุ"}</span>
-                        {c.memberCode && <span className="font-mono text-[10px] text-primary bg-primary/10 px-1.5 rounded">{c.memberCode}</span>}
-                        <Badge variant="outline" className="text-[10px]">{intentLabel[c.topIntent] ?? c.topIntent}</Badge>
-                        {c.escalated && <Badge className="text-[10px] bg-amber-500 text-white ml-auto gap-1"><Headset className="w-3 h-3" />ต้องช่วย</Badge>}
+                      className="w-full text-left p-3 rounded-xl border border-border hover:bg-muted/40 transition-colors flex items-center gap-3">
+                      <MemberAvatar firstName={c.name?.split(" ")[0]} lastName={c.name?.split(" ")[1]} src={c.profileImageUrl} className="w-10 h-10 text-sm" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium truncate">{c.name ?? "ผู้ใช้ไม่ระบุ"}</span>
+                          {c.memberCode && <span className="font-mono text-[10px] text-primary bg-primary/10 px-1.5 rounded">{c.memberCode}</span>}
+                          <Badge variant="outline" className="text-[10px]">{intentLabel[c.topIntent] ?? c.topIntent}</Badge>
+                          {c.escalated && <Badge className="text-[10px] bg-amber-500 text-white ml-auto gap-1"><Headset className="w-3 h-3" />ต้องช่วย</Badge>}
+                        </div>
+                        <p className="text-xs text-muted-foreground truncate mt-1">“{c.lastMessage}”</p>
+                        <p className="text-[10px] text-muted-foreground/70 mt-0.5">{c.messageCount} ข้อความ</p>
                       </div>
-                      <p className="text-xs text-muted-foreground truncate mt-1">“{c.lastMessage}”</p>
-                      <p className="text-[10px] text-muted-foreground/70 mt-0.5">{c.messageCount} ข้อความ</p>
                     </button>
                   ))}
               </CardContent>
@@ -121,7 +125,12 @@ export function AdminAiChat() {
       {/* Conversation dialog */}
       <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{selected?.name ?? "บทสนทนา"} {selected?.memberCode ? `· ${selected.memberCode}` : ""}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2.5">
+              <MemberAvatar firstName={selected?.name?.split(" ")[0]} lastName={selected?.name?.split(" ")[1]} src={selected?.profileImageUrl} className="w-9 h-9 text-xs" />
+              <span>{selected?.name ?? "บทสนทนา"} {selected?.memberCode ? `· ${selected.memberCode}` : ""}</span>
+            </DialogTitle>
+          </DialogHeader>
           <div className="space-y-3">
             {(conv ?? []).map((row, i) => (
               <div key={i} className="space-y-1.5">

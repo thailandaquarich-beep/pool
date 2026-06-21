@@ -18,6 +18,7 @@ export const memberPackagesTable = pgTable("member_packages", {
   startDate: timestamp("start_date", { withTimezone: true }).notNull().defaultNow(),
   endDate: timestamp("end_date", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  branchId: integer("branch_id").default(1),
 });
 
 export type MemberPackage = typeof memberPackagesTable.$inferSelect;

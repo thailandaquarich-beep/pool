@@ -37,6 +37,8 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Search, Plus, Pencil, Trash2, KeyRound, ChevronLeft, ChevronRight, GraduationCap, Phone, Mail, Users, Ticket, CalendarClock } from "lucide-react";
+import { MemberAvatar } from "@/components/member-avatar";
+import { ImageUpload } from "@/components/image-upload";
 import { cn } from "@/lib/utils";
 
 type User = {
@@ -74,11 +76,15 @@ const RoleBadge = ({ role }: { role: string }) => {
   );
 };
 
-const UserAvatar = ({ firstName, lastName }: { firstName: string; lastName: string }) => {
+const UserAvatar = ({ firstName, lastName, profileImageUrl }: { firstName: string; lastName: string; profileImageUrl?: string | null }) => {
   const initials = `${firstName?.[0] ?? ""}${lastName?.[0] ?? ""}`.toUpperCase();
   return (
-    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-cyan-500 text-white text-sm font-bold flex items-center justify-center flex-shrink-0 shadow-sm ring-2 ring-background">
-      {initials}
+    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-cyan-500 text-white text-sm font-bold flex items-center justify-center flex-shrink-0 shadow-sm ring-2 ring-background overflow-hidden">
+      {profileImageUrl ? (
+        <img src={profileImageUrl} alt={initials} className="w-full h-full object-cover" />
+      ) : (
+        initials
+      )}
     </div>
   );
 };
@@ -103,6 +109,7 @@ type EditForm = {
   phone: string;
   email: string;
   role: string;
+  profileImageUrl: string;
 };
 
 export function AdminMembers() {
@@ -120,8 +127,6 @@ export function AdminMembers() {
   const [deleteUser, setDeleteUser] = useState<User | null>(null);
   const [resetUser, setResetUser] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState("");
-  const [instructorTarget, setInstructorTarget] = useState<User | null>(null);
-  const [instructorSpecialty, setInstructorSpecialty] = useState("ครูฝึกว่ายน้ำ");
 
   const token = localStorage.getItem("pool_token");
   const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -136,7 +141,12 @@ export function AdminMembers() {
   });
 
   const params = { page, limit: 15, ...(debouncedSearch ? { search: debouncedSearch } : {}) };
-  const { data, isLoading } = useListUsers(params);
+  // Real-time: re-pull each member's remaining package uses from the DB every 8s
+  // (and instantly when the admin returns to the tab). Remaining is computed live
+  // server-side as quota − bookingsUsed, so each poll reflects the current count.
+  const { data, isLoading } = useListUsers(params, {
+    query: { refetchInterval: 8000, refetchOnWindowFocus: true, refetchOnMount: "always" },
+  });
   const users: User[] = (data as any)?.users ?? [];
   const totalPages: number = (data as any)?.totalPages ?? 1;
   const total: number = (data as any)?.total ?? 0;
@@ -171,38 +181,21 @@ export function AdminMembers() {
     },
   });
 
-  // Promote a member to instructor: create an instructor profile + set their role to "instructor".
+  // Promote a member to instructor in one idempotent backend call (sets role=instructor
+  // first, then links/creates their instructor profile — never fails on a duplicate email).
   const promoteMutation = useMutation({
     mutationFn: async ({ user, specialty }: { user: User; specialty: string }) => {
-      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
-      const r1 = await fetch(`${baseUrl}/api/instructors`, {
+      const res = await fetch(`${baseUrl}/api/instructors/promote`, {
         method: "POST",
-        headers,
-        body: JSON.stringify({
-          firstName: user.firstName,
-          lastName: user.lastName,
-          phone: user.phone || "-",
-          email: user.email,
-          specialty: specialty || "ครูฝึกว่ายน้ำ",
-          status: "active",
-          userId: user.id, // link the instructor profile to this member's login (so /instructors/me works)
-        }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userId: user.id, specialty: specialty || "ครูฝึกว่ายน้ำ" }),
       });
-      if (!r1.ok) {
-        const e = await r1.json().catch(() => ({}));
-        throw new Error(e.error || "สร้างข้อมูลครูฝึกไม่สำเร็จ (อีเมลอาจซ้ำ)");
-      }
-      const r2 = await fetch(`${baseUrl}/api/users/${user.id}`, {
-        method: "PATCH",
-        headers,
-        body: JSON.stringify({ role: "instructor" }),
-      });
-      if (!r2.ok) throw new Error("อัปเดตระดับสิทธิ์ไม่สำเร็จ");
-      return r1.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "ปรับระดับเป็นครูฝึกไม่สำเร็จ");
+      return data;
     },
     onSuccess: () => {
-      toast({ title: "ตั้งเป็นครูฝึกสำเร็จ", description: "เพิ่มลงระบบครูฝึกและปรับระดับเป็นครูฝึกแล้ว" });
-      setInstructorTarget(null);
+      toast({ title: "ตั้งเป็นครูฝึกสำเร็จ", description: "ปรับระดับเป็นครูฝึกและเชื่อมโปรไฟล์แล้ว" });
       invalidate();
       qc.invalidateQueries({ queryKey: ["instructors"] });
     },
@@ -220,6 +213,7 @@ export function AdminMembers() {
       height: user.height != null ? String(user.height) : "",
       phone: user.phone ?? "",
       email: user.email, role: user.role,
+      profileImageUrl: (user as any).profileImageUrl ?? "",
     });
     setEditUser(user);
   }
@@ -236,6 +230,7 @@ export function AdminMembers() {
     { key: "all", label: "ทั้งหมด" },
     { key: "member", label: "สมาชิก" },
     { key: "instructor", label: "ครูฝึก" },
+    { key: "staff", label: "พนักงาน" },
     { key: "admin", label: "แอดมิน" },
   ];
 
@@ -300,11 +295,11 @@ export function AdminMembers() {
               <thead>
                 <tr className="border-b border-border bg-muted/40 text-xs uppercase tracking-wide">
                   <th className="text-left px-5 py-3.5 font-semibold text-muted-foreground">สมาชิก</th>
-                  <th className="text-left px-4 py-3.5 font-semibold text-muted-foreground">ข้อมูลร่างกาย</th>
+                  <th className="hidden lg:table-cell text-left px-4 py-3.5 font-semibold text-muted-foreground">ข้อมูลร่างกาย</th>
                   <th className="text-left px-4 py-3.5 font-semibold text-muted-foreground">แพ็กเกจ / สิทธิ์คงเหลือ</th>
-                  <th className="text-left px-4 py-3.5 font-semibold text-muted-foreground">ติดต่อ</th>
+                  <th className="hidden md:table-cell text-left px-4 py-3.5 font-semibold text-muted-foreground">ติดต่อ</th>
                   <th className="text-left px-4 py-3.5 font-semibold text-muted-foreground">ระดับ</th>
-                  <th className="text-left px-4 py-3.5 font-semibold text-muted-foreground">สมัครเมื่อ</th>
+                  <th className="hidden lg:table-cell text-left px-4 py-3.5 font-semibold text-muted-foreground">สมัครเมื่อ</th>
                   <th className="text-right px-5 py-3.5 font-semibold text-muted-foreground">จัดการ</th>
                 </tr>
               </thead>
@@ -314,7 +309,7 @@ export function AdminMembers() {
                     {/* member */}
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
-                        <UserAvatar firstName={user.firstName} lastName={user.lastName} />
+                        <UserAvatar firstName={user.firstName} lastName={user.lastName} profileImageUrl={(user as any).profileImageUrl} />
                         <div className="min-w-0">
                           <p className="font-semibold text-foreground truncate">{user.firstName} {user.lastName}</p>
                           <div className="flex items-center gap-2 mt-0.5">
@@ -325,7 +320,7 @@ export function AdminMembers() {
                       </div>
                     </td>
                     {/* body */}
-                    <td className="px-4 py-3">
+                    <td className="hidden lg:table-cell px-4 py-3">
                       {user.weight || user.height ? (
                         <div className="flex flex-wrap gap-1.5">
                           {user.weight != null && <span className="text-xs px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground">{user.weight} กก.</span>}
@@ -349,7 +344,7 @@ export function AdminMembers() {
                       )}
                     </td>
                     {/* contact */}
-                    <td className="px-4 py-3">
+                    <td className="hidden md:table-cell px-4 py-3">
                       <div className="space-y-1 text-xs">
                         <div className="flex items-center gap-1.5 text-foreground"><Phone className="w-3 h-3 text-muted-foreground shrink-0" /> {user.phone ?? "-"}</div>
                         <div className="flex items-center gap-1.5 text-muted-foreground"><Mail className="w-3 h-3 shrink-0" /> <span className="truncate max-w-[180px]">{user.email}</span></div>
@@ -358,7 +353,7 @@ export function AdminMembers() {
                     {/* role */}
                     <td className="px-4 py-3"><RoleBadge role={user.role} /></td>
                     {/* joined */}
-                    <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
+                    <td className="hidden lg:table-cell px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
                       {new Date(user.createdAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}
                     </td>
                     {/* actions */}
@@ -371,7 +366,7 @@ export function AdminMembers() {
                           <KeyRound className="w-3.5 h-3.5" />
                         </Button>
                         {user.role !== "instructor" && (
-                          <Button size="icon" variant="ghost" className="h-8 w-8 rounded-lg text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30" onClick={() => { setInstructorSpecialty("ครูฝึกว่ายน้ำ"); setInstructorTarget(user); }} title="ตั้งเป็นครูฝึก" data-testid={`promote-btn-${user.id}`}>
+                          <Button size="icon" variant="ghost" className="h-8 w-8 rounded-lg text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30" disabled={promoteMutation.isPending} onClick={() => promoteMutation.mutate({ user, specialty: "ครูฝึกว่ายน้ำ" })} title="ตั้งเป็นครูฝึก (ปรับระดับทันที)" data-testid={`promote-btn-${user.id}`}>
                             <GraduationCap className="w-3.5 h-3.5" />
                           </Button>
                         )}
@@ -451,6 +446,7 @@ export function AdminMembers() {
                 <SelectContent>
                   <SelectItem value="member">Member — สมาชิกทั่วไป</SelectItem>
                   <SelectItem value="instructor">ครูฝึก — ผู้ฝึกสอน</SelectItem>
+                  <SelectItem value="staff">พนักงาน — ลงเวลางานได้</SelectItem>
                   <SelectItem value="admin">Admin — ผู้ดูแลระบบ</SelectItem>
                   <SelectItem value="super_admin">Super Admin — สิทธิ์สูงสุด</SelectItem>
                 </SelectContent>
@@ -479,6 +475,11 @@ export function AdminMembers() {
               <p className="text-sm text-muted-foreground">รหัสสมาชิก: <span className="font-mono font-semibold text-primary">{editUser.memberCode}</span></p>
             )}
           </DialogHeader>
+          {editUser && (
+            <div className="flex justify-center -mt-1 mb-1">
+              <ImageUpload value={editForm.profileImageUrl} onChange={(v) => setEditForm(f => ({ ...f, profileImageUrl: v ?? "" }))} shape="circle" maxMb={3} label="รูปสมาชิก" />
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>ชื่อ</Label>
@@ -513,6 +514,7 @@ export function AdminMembers() {
                 <SelectContent>
                   <SelectItem value="member">Member — สมาชิกทั่วไป</SelectItem>
                   <SelectItem value="instructor">ครูฝึก — ผู้ฝึกสอน</SelectItem>
+                  <SelectItem value="staff">พนักงาน — ลงเวลางานได้</SelectItem>
                   <SelectItem value="admin">Admin — ผู้ดูแลระบบ</SelectItem>
                   <SelectItem value="super_admin">Super Admin — สิทธิ์สูงสุด</SelectItem>
                 </SelectContent>
@@ -564,35 +566,6 @@ export function AdminMembers() {
               onClick={() => resetUser && resetMutation.mutate({ id: resetUser.id, data: { newPassword } })}
             >
               {resetMutation.isPending ? "กำลังรีเซ็ต..." : "รีเซ็ตรหัสผ่าน"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Set as Instructor Dialog */}
-      <Dialog open={!!instructorTarget} onOpenChange={(o) => !o && setInstructorTarget(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>ตั้งเป็นครูฝึก</DialogTitle>
-          </DialogHeader>
-          {instructorTarget && (
-            <p className="text-sm text-muted-foreground">
-              ตั้ง <span className="font-semibold text-foreground">{instructorTarget.firstName} {instructorTarget.lastName}</span> เป็นครูฝึก — ระบบจะสร้างโปรไฟล์ในระบบครูฝึก และปรับระดับสิทธิ์เป็น "ครูฝึก" อัตโนมัติ
-            </p>
-          )}
-          <div className="space-y-1.5">
-            <Label>ความเชี่ยวชาญ</Label>
-            <Input value={instructorSpecialty} onChange={(e) => setInstructorSpecialty(e.target.value)} placeholder="เช่น ว่ายน้ำท่าผีเสื้อ" />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setInstructorTarget(null)}>ยกเลิก</Button>
-            <Button
-              disabled={promoteMutation.isPending}
-              onClick={() => instructorTarget && promoteMutation.mutate({ user: instructorTarget, specialty: instructorSpecialty })}
-              className="gap-1.5"
-            >
-              <GraduationCap className="w-4 h-4" />
-              {promoteMutation.isPending ? "กำลังดำเนินการ..." : "ยืนยัน"}
             </Button>
           </DialogFooter>
         </DialogContent>

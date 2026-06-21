@@ -4,7 +4,9 @@ import path from "path";
 import { db, ordersTable, productsTable, usersTable } from "@workspace/db";
 import { eq, desc, and, inArray, sql } from "drizzle-orm";
 import { authenticate, requireAdmin, isAdminRole } from "../middlewares/auth.js";
+import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
 import { dataDirs } from "../lib/dataPaths.js";
+import { appendMemberLog } from "../lib/memberLog.js";
 
 const router = Router();
 
@@ -57,7 +59,7 @@ async function saveSlip(dataUrl: unknown, orderId: number, userId: number): Prom
 }
 
 // POST /orders — member places an order (cart checkout)
-router.post("/", authenticate, async (req, res) => {
+router.post("/", authenticate, attachBranch, async (req, res) => {
   try {
     const { items, recipientName, phone, address, subdistrict, district, province, zipcode, slipImageUrl, note } = req.body;
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: "ตะกร้าว่าง" });
@@ -79,21 +81,45 @@ router.post("/", authenticate, async (req, res) => {
     }
     if (lineItems.length === 0) return res.status(400).json({ error: "ไม่พบสินค้าที่สั่งซื้อ" });
 
+    // Stock check (only for products that track stock)
+    for (const li of lineItems) {
+      const p = byId[li.productId];
+      if (p.stock != null && p.stock < li.qty) {
+        return res.status(400).json({ error: `"${p.name}" มีสินค้าไม่พอ (เหลือ ${p.stock} ชิ้น)` });
+      }
+    }
+
     const paid = typeof slipImageUrl === "string" && slipImageUrl.startsWith("data:");
-    const [order] = await db
-      .insert(ordersTable)
-      .values({
-        userId: req.user!.userId,
-        items: JSON.stringify(lineItems),
-        subtotal: String(subtotal),
-        status: paid ? "paid" : "pending",
-        recipientName, phone, address,
-        subdistrict: subdistrict || null, district: district || null, province: province || null, zipcode: zipcode || null,
-        slipImageUrl: typeof slipImageUrl === "string" ? slipImageUrl : null,
-        note: note || null,
-        paidAt: paid ? new Date() : null,
-      })
-      .returning();
+    // Insert the order and reserve stock atomically
+    const order = await db.transaction(async (tx) => {
+      const [o] = await tx
+        .insert(ordersTable)
+        .values({
+          userId: req.user!.userId,
+          items: JSON.stringify(lineItems),
+          subtotal: String(subtotal),
+          status: paid ? "paid" : "pending",
+          branchId: newRowBranch(req),
+          recipientName, phone, address,
+          subdistrict: subdistrict || null, district: district || null, province: province || null, zipcode: zipcode || null,
+          slipImageUrl: typeof slipImageUrl === "string" ? slipImageUrl : null,
+          note: note || null,
+          paidAt: paid ? new Date() : null,
+        })
+        .returning();
+      for (const li of lineItems) {
+        if (byId[li.productId].stock != null) {
+          await tx.update(productsTable)
+            .set({ stock: sql`GREATEST(${productsTable.stock} - ${li.qty}, 0)` })
+            .where(eq(productsTable.id, li.productId));
+        }
+      }
+      return o;
+    });
+
+    await appendMemberLog({ userId: req.user!.userId }, "activity", {
+      action: "order", orderId: order.id, subtotal, itemCount: lineItems.length, status: order.status,
+    });
 
     if (paid) {
       await logSale(order);
@@ -120,12 +146,12 @@ router.get("/my", authenticate, async (req, res) => {
 });
 
 // GET /orders/admin/pending-count — orders needing admin action (for the nav badge)
-router.get("/admin/pending-count", authenticate, requireAdmin, async (_req, res) => {
+router.get("/admin/pending-count", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
     const [{ count }] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(ordersTable)
-      .where(inArray(ordersTable.status, ["pending", "paid"]));
+      .where(and(inArray(ordersTable.status, ["pending", "paid"]), branchEq(req, ordersTable.branchId)));
     return res.json({ count });
   } catch {
     return res.status(500).json({ error: "Failed" });
@@ -133,9 +159,9 @@ router.get("/admin/pending-count", authenticate, requireAdmin, async (_req, res)
 });
 
 // GET /orders/admin/revenue — sales revenue summary (counts received money only)
-router.get("/admin/revenue", authenticate, requireAdmin, async (_req, res) => {
+router.get("/admin/revenue", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
-    const rows = await db.select().from(ordersTable);
+    const rows = await db.select().from(ordersTable).where(branchEq(req, ordersTable.branchId));
     const todayStr = bkkDay.format(new Date());
     const monthStr = todayStr.slice(0, 7);
     let totalRevenue = 0, todayRevenue = 0, monthRevenue = 0, pendingRevenue = 0;
@@ -174,14 +200,14 @@ router.get("/admin/revenue", authenticate, requireAdmin, async (_req, res) => {
 });
 
 // GET /orders — admin: all orders (optional ?status=)
-router.get("/", authenticate, requireAdmin, async (req, res) => {
+router.get("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
     const status = req.query.status as string | undefined;
     const rows = await db
       .select({ order: ordersTable, user: usersTable })
       .from(ordersTable)
       .innerJoin(usersTable, eq(ordersTable.userId, usersTable.id))
-      .where(status ? eq(ordersTable.status, status) : undefined)
+      .where(and(branchEq(req, ordersTable.branchId), status ? eq(ordersTable.status, status) : undefined))
       .orderBy(desc(ordersTable.createdAt))
       .limit(300);
     return res.json(rows.map((r) => fmt(r.order, r.user)));
@@ -219,6 +245,18 @@ router.patch("/:id", authenticate, requireAdmin, async (req, res) => {
     const [o] = await db.update(ordersTable).set(updates).where(eq(ordersTable.id, id)).returning();
     // record revenue the first time an order is marked paid (wasn't already paid/shipped)
     if (status === "paid" && prev.status !== "paid" && prev.status !== "shipped") await logSale(o);
+    // restore reserved stock when an order is cancelled (only once)
+    if (status === "cancelled" && prev.status !== "cancelled") {
+      try {
+        for (const li of JSON.parse(prev.items || "[]") as { productId: number; qty: number }[]) {
+          if (li.productId) {
+            await db.update(productsTable)
+              .set({ stock: sql`${productsTable.stock} + ${li.qty}` })
+              .where(and(eq(productsTable.id, li.productId), sql`${productsTable.stock} IS NOT NULL`));
+          }
+        }
+      } catch { /* ignore */ }
+    }
     return res.json(fmt(o));
   } catch {
     return res.status(500).json({ error: "Failed to update order" });

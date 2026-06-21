@@ -9,9 +9,10 @@ import * as z from "zod";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
-import { Camera, User, Lock, Eye, EyeOff } from "lucide-react";
+import { Camera, User, Lock, Eye, EyeOff, Waves, Timer, CalendarCheck, CalendarHeart, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const profileSchema = z.object({
@@ -38,6 +39,7 @@ export const Profile: FC = () => {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [avatar, setAvatar] = useState<string | null>((user as any)?.profileImageUrl || null);
+  const [stats, setStats] = useState<{ totalVisits: number; totalMinutes: number; visitsThisMonth: number; bookingVisits: number; checkinVisits: number; lastVisit: string | null } | null>(null);
   const [showPw, setShowPw] = useState(false);
   const [showNewPw, setShowNewPw] = useState(false);
   const [savingPw, setSavingPw] = useState(false);
@@ -72,6 +74,23 @@ export const Profile: FC = () => {
     setAvatar((user as any).profileImageUrl || null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // Swim activity stats (visits + total swim time).
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${baseUrl}/api/users/me/stats`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setStats(d))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const fmtDuration = (min: number) => {
+    const h = Math.floor(min / 60), m = min % 60;
+    if (h && m) return `${h} ชม. ${m} นาที`;
+    if (h) return `${h} ชม.`;
+    return `${m} นาที`;
+  };
 
   const qc = useQueryClient();
   const updateUser = useUpdateUser();
@@ -171,6 +190,39 @@ export const Profile: FC = () => {
         </CardContent>
       </Card>
 
+      {/* Swim activity stats */}
+      <Card className="overflow-hidden border-primary/20">
+        <CardHeader className="flex flex-row items-center gap-2 bg-gradient-to-r from-primary/10 via-cyan-500/5 to-transparent">
+          <Waves className="w-5 h-5 text-primary" />
+          <CardTitle className="text-base">สถิติการว่ายน้ำ</CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 sm:p-5">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              { icon: CalendarCheck, label: "จำนวนครั้งที่มาใช้", value: `${stats?.totalVisits ?? 0}`, unit: "ครั้ง", grad: "from-cyan-500 to-blue-600" },
+              { icon: Timer, label: "เวลาว่ายน้ำรวม", value: stats ? fmtDuration(stats.totalMinutes) : "0 นาที", unit: "", grad: "from-sky-500 to-indigo-600" },
+              { icon: CalendarHeart, label: "มาใช้เดือนนี้", value: `${stats?.visitsThisMonth ?? 0}`, unit: "ครั้ง", grad: "from-teal-500 to-emerald-600" },
+              { icon: History, label: "มาใช้ล่าสุด", value: stats?.lastVisit ? new Date(stats.lastVisit).toLocaleDateString("th-TH", { day: "numeric", month: "short" }) : "—", unit: "", grad: "from-violet-500 to-fuchsia-600" },
+            ].map((s, i) => (
+              <div key={i} className={cn("relative overflow-hidden rounded-2xl p-4 text-white shadow-lg card-lift bg-gradient-to-br", s.grad)}>
+                <s.icon className="w-5 h-5 opacity-90" />
+                <div className="mt-2 text-2xl font-extrabold leading-tight tracking-tight">
+                  {s.value}{s.unit && <span className="text-sm font-semibold text-white/80"> {s.unit}</span>}
+                </div>
+                <div className="text-[11px] font-medium text-white/85 mt-0.5">{s.label}</div>
+                <s.icon className="absolute -right-3 -bottom-3 w-16 h-16 opacity-10" />
+              </div>
+            ))}
+          </div>
+          {stats && stats.totalVisits > 0 && (
+            <div className="mt-3 flex items-center justify-center gap-4 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1"><CalendarCheck className="w-3.5 h-3.5 text-primary" /> จองล่วงหน้า {stats.bookingVisits} ครั้ง</span>
+              <span className="flex items-center gap-1"><Waves className="w-3.5 h-3.5 text-cyan-500" /> วอล์กอิน {stats.checkinVisits} ครั้ง</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Profile info */}
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
@@ -188,7 +240,7 @@ export const Profile: FC = () => {
                   <FormItem><FormLabel>{t("auth.lastName")}</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <FormField control={form.control} name="weight" render={({ field }) => (
                   <FormItem><FormLabel>{t("auth.weight")}</FormLabel><FormControl><Input type="number" min={0} {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
@@ -204,11 +256,11 @@ export const Profile: FC = () => {
               )} />
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <FormLabel>{t("auth.username")}</FormLabel>
-                  <Input value={user?.username} disabled className="bg-muted" />
+                  <Label>{t("auth.username")}</Label>
+                  <Input value={user?.username ?? ""} disabled className="bg-muted" />
                 </div>
                 <div className="space-y-2">
-                  <FormLabel>{t("auth.memberCode")}</FormLabel>
+                  <Label>{t("auth.memberCode")}</Label>
                   <Input value={(user as any)?.memberCode ?? "-"} disabled className="bg-muted font-mono font-semibold text-primary" />
                 </div>
               </div>

@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarDays, CalendarClock, Trash2, Plus, Clock, Users, Phone, CheckCircle2, XCircle } from "lucide-react";
+import { CalendarDays, CalendarClock, Trash2, Plus, Clock, Users, Phone, CheckCircle2, XCircle, GraduationCap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Avail = {
@@ -26,6 +26,7 @@ export const InstructorSchedule: FC = () => {
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
 
   const [me, setMe] = useState<{ firstName: string; lastName: string; specialty: string } | null>(null);
+  const [stats, setStats] = useState<{ total: number; thisMonth: number } | null>(null);
   const [items, setItems] = useState<Avail[]>([]);
   const [kind, setKind] = useState<"weekly" | "date">("weekly");
   const [dayOfWeek, setDayOfWeek] = useState("1");
@@ -46,6 +47,10 @@ export const InstructorSchedule: FC = () => {
     const r = await fetch(`${baseUrl}/api/instructors/me/bookings`, { headers });
     if (r.ok) setBookings(await r.json());
   };
+  const loadStats = async () => {
+    const r = await fetch(`${baseUrl}/api/instructors/me/stats`, { headers });
+    if (r.ok) setStats(await r.json());
+  };
   // Instructor confirms / rejects a booking on their own queue.
   const act = async (id: number, status: "confirmed" | "cancelled") => {
     setBusyId(id);
@@ -55,6 +60,7 @@ export const InstructorSchedule: FC = () => {
       if (!r.ok) throw new Error(data.error || "ทำรายการไม่สำเร็จ");
       toast({ title: status === "confirmed" ? "ยืนยันคิวแล้ว" : "ยกเลิกคิวแล้ว", description: status === "confirmed" ? "หักสิทธิ์สมาชิก 1 ครั้ง" : "คืนสิทธิ์ให้สมาชิกแล้ว" });
       await loadBookings();
+      await loadStats(); // confirming a session that has already occurred bumps the teaching tally
     } catch (e: any) {
       toast({ title: "ไม่สำเร็จ", description: e?.message, variant: "destructive" });
     } finally { setBusyId(null); }
@@ -65,6 +71,7 @@ export const InstructorSchedule: FC = () => {
       if (m.ok) setMe(await m.json());
       await load();
       await loadBookings();
+      await loadStats();
       setLoading(false);
     })();
     const iv = setInterval(loadBookings, 30000); // refresh incoming queue
@@ -109,6 +116,27 @@ export const InstructorSchedule: FC = () => {
         <h1 className="text-2xl font-bold flex items-center gap-2"><CalendarClock className="w-6 h-6" /> ตารางสอนของฉัน</h1>
         <p className="text-sm text-muted-foreground">ครูฝึก {me.firstName} {me.lastName} · {me.specialty}</p>
       </div>
+
+      {/* Teaching tally — how many sessions this instructor has taught at the club */}
+      <Card className="border-primary/30 bg-primary/5">
+        <CardContent className="flex items-center gap-4 py-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+            <GraduationCap className="h-6 w-6" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm text-muted-foreground">จำนวนครั้งที่มาสอนที่สโมสร</p>
+            <p className="text-2xl font-bold leading-tight">
+              {stats?.total ?? "—"} <span className="text-base font-medium text-muted-foreground">ครั้ง</span>
+            </p>
+          </div>
+          {stats && stats.thisMonth > 0 && (
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">เดือนนี้</p>
+              <p className="text-lg font-semibold text-primary">{stats.thisMonth} ครั้ง</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Incoming bookings (customers who booked this instructor's queue) */}
       <Card className="border-primary/30">

@@ -21,6 +21,7 @@ export const settingsTable = pgTable("settings", {
   bankAccountNumber: text("bank_account_number"),
   bankName: text("bank_name"),
   promptpayNumber: text("promptpay_number"),
+  branchId: integer("branch_id").default(1),
 });
 
 export const insertSettingsSchema = createInsertSchema(settingsTable).omit({

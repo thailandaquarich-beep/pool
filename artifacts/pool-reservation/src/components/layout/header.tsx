@@ -28,16 +28,19 @@ import {
   ShoppingCart,
   Package,
   Sparkles,
-  Bot
+  Bot,
+  LifeBuoy,
+  CalendarOff
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand";
 import { NotificationBell } from "@/components/notification-bell";
+import { BranchSwitcher } from "@/components/branch-switcher";
 import { useCart } from "@/hooks/use-cart";
 
 export const Header: FC = () => {
   const { language, setLanguage, t } = useTranslation();
-  const { user, isAdmin, isInstructor, logout } = useAuth();
+  const { user, isAdmin, isInstructor, isStaff, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [location, navigate] = useLocation();
   const [open, setOpen] = useState(false);
@@ -53,7 +56,7 @@ export const Header: FC = () => {
     { href: "/book", label: t("nav.book"), icon: CalendarPlus },
     { href: "/instructors", label: "ครูฝึก", icon: GraduationCap },
     { href: "/membership-card", label: "บัตรสมาชิก", icon: QrCode },
-    { href: "/products", label: "ผลิตภัณฑ์", icon: ShoppingBag },
+    { href: "/products", label: "ร้านค้าสโมสร", icon: ShoppingBag },
     { href: "/my-orders", label: "คำสั่งซื้อของฉัน", icon: Package },
     { href: "/services", label: "บริการอื่นๆ", icon: Sparkles },
     { href: "/profile", label: t("nav.profile"), icon: User },
@@ -70,15 +73,25 @@ export const Header: FC = () => {
     { href: "/admin/orders", label: "คำสั่งซื้อ", icon: Package },
     { href: "/admin/ai-chat", label: "วิเคราะห์แชท AI", icon: Bot },
     { href: "/admin/announcements", label: t("nav.admin.announcements"), icon: Bell },
+    { href: "/admin/help", label: "ศูนย์ช่วยเหลือ", icon: LifeBuoy },
+    { href: "/admin/leave", label: "คำขอลาพนักงาน", icon: CalendarOff },
     { href: "/admin/settings", label: t("nav.admin.settings"), icon: Settings },
   ];
 
   const instructorLinks = [
     { href: "/instructor/schedule", label: "ตารางสอนของฉัน", icon: CalendarDays },
+    { href: "/attendance", label: "ลงเวลางาน", icon: CalendarDays },
+    { href: "/leave", label: "การลา", icon: CalendarOff },
     ...memberLinks,
   ];
 
-  const links = isAdmin ? adminLinks : isInstructor ? instructorLinks : memberLinks;
+  const staffLinks = [
+    { href: "/attendance", label: "ลงเวลางาน", icon: CalendarDays },
+    { href: "/leave", label: "การลา", icon: CalendarOff },
+    { href: "/profile", label: t("nav.profile"), icon: User },
+  ];
+
+  const links = isAdmin ? adminLinks : isInstructor ? instructorLinks : isStaff ? staffLinks : memberLinks;
 
   const handleNavClick = () => setOpen(false);
 
@@ -192,6 +205,8 @@ export const Header: FC = () => {
 
       {/* Right side actions */}
       <div className="flex items-center gap-2 ml-auto">
+        {/* super_admin branch switcher (self-hides for everyone else) */}
+        <BranchSwitcher />
         {!isAdmin && (
           <Button variant="ghost" size="icon" className="relative" onClick={() => navigate("/cart")} title="ตะกร้าสินค้า">
             <ShoppingCart className="w-4 h-4" />

@@ -2,10 +2,12 @@ import { Router } from "express";
 import fs from "fs/promises";
 import path from "path";
 import { db, topupRequestsTable, walletsTable, transactionsTable, usersTable } from "@workspace/db";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth.js";
+import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
 import { getOrCreateWallet } from "./wallet.js";
 import { dataDirs } from "../lib/dataPaths.js";
+import { appendMemberLog } from "../lib/memberLog.js";
 
 const router = Router();
 
@@ -26,7 +28,7 @@ async function saveSlipFile(dataUrl: unknown, topupId: number, userId: number): 
 }
 
 // POST /topup — member submits top-up request
-router.post("/", authenticate, async (req, res) => {
+router.post("/", authenticate, attachBranch, async (req, res) => {
   try {
     const { amount, method, slipImageUrl, note } = req.body;
     if (!amount || Number(amount) <= 0) {
@@ -37,6 +39,7 @@ router.post("/", authenticate, async (req, res) => {
       .insert(topupRequestsTable)
       .values({
         userId: req.user!.userId,
+        branchId: newRowBranch(req),
         amount: String(amount),
         method: method || "bank_transfer",
         slipImageUrl,
@@ -46,6 +49,10 @@ router.post("/", authenticate, async (req, res) => {
 
     // Archive the uploaded slip image into the organized data/slips/ folder.
     await saveSlipFile(slipImageUrl, request.id, req.user!.userId);
+
+    await appendMemberLog({ userId: req.user!.userId }, "activity", {
+      action: "topup_request", amount: Number(request.amount), method,
+    });
 
     return res.status(201).json({ ...request, amount: Number(request.amount), createdAt: request.createdAt.toISOString() });
   } catch {
@@ -69,21 +76,23 @@ router.get("/my", authenticate, async (req, res) => {
 });
 
 // GET /topup/admin — admin: all requests
-router.get("/admin", authenticate, requireAdmin, async (req, res) => {
+router.get("/admin", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
     const status = req.query.status as string | undefined;
-    let query = db
+    const where = and(
+      branchEq(req, topupRequestsTable.branchId),
+      status ? eq(topupRequestsTable.status, status as any) : undefined,
+    );
+    const query = db
       .select({
         request: topupRequestsTable,
         user: { id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName, username: usersTable.username },
       })
       .from(topupRequestsTable)
       .innerJoin(usersTable, eq(topupRequestsTable.userId, usersTable.id))
-      .$dynamic();
+      .where(where);
 
-    if (status) query = query.where(eq(topupRequestsTable.status, status as any)) as any;
-
-    const rows = await (query as any).orderBy(desc(topupRequestsTable.createdAt)).limit(100);
+    const rows = await query.orderBy(desc(topupRequestsTable.createdAt)).limit(100);
     return res.json(rows.map((r: any) => ({
       ...r.request,
       amount: Number(r.request.amount),
@@ -97,7 +106,7 @@ router.get("/admin", authenticate, requireAdmin, async (req, res) => {
 });
 
 // POST /topup/:id/approve — admin: approve
-router.post("/:id/approve", authenticate, requireAdmin, async (req, res) => {
+router.post("/:id/approve", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { reviewNote } = req.body;
@@ -105,6 +114,10 @@ router.post("/:id/approve", authenticate, requireAdmin, async (req, res) => {
     const [request] = await db.select().from(topupRequestsTable).where(eq(topupRequestsTable.id, id)).limit(1);
     if (!request) return res.status(404).json({ error: "Request not found" });
     if (request.status !== "pending") return res.status(400).json({ error: "Already processed" });
+    // A branch admin may only approve top-ups from their own branch.
+    if (req.branchId != null && request.branchId !== req.branchId) {
+      return res.status(403).json({ error: "ไม่สามารถอนุมัติคำขอต่างสาขาได้" });
+    }
 
     const wallet = await getOrCreateWallet(request.userId);
     const newBalance = Number(wallet.balance) + Number(request.amount);
@@ -118,6 +131,7 @@ router.post("/:id/approve", authenticate, requireAdmin, async (req, res) => {
       description: `เติมเงินผ่าน ${request.method} (อนุมัติโดยแอดมิน)`,
       status: "completed",
       referenceId: id,
+      branchId: request.branchId,
     });
 
     const [updated] = await db
@@ -133,7 +147,7 @@ router.post("/:id/approve", authenticate, requireAdmin, async (req, res) => {
 });
 
 // POST /topup/:id/reject — admin: reject
-router.post("/:id/reject", authenticate, requireAdmin, async (req, res) => {
+router.post("/:id/reject", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { reviewNote } = req.body;
@@ -141,6 +155,9 @@ router.post("/:id/reject", authenticate, requireAdmin, async (req, res) => {
     const [request] = await db.select().from(topupRequestsTable).where(eq(topupRequestsTable.id, id)).limit(1);
     if (!request) return res.status(404).json({ error: "Request not found" });
     if (request.status !== "pending") return res.status(400).json({ error: "Already processed" });
+    if (req.branchId != null && request.branchId !== req.branchId) {
+      return res.status(403).json({ error: "ไม่สามารถปฏิเสธคำขอต่างสาขาได้" });
+    }
 
     const [updated] = await db
       .update(topupRequestsTable)
