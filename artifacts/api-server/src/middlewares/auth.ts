@@ -19,7 +19,7 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
   try {
     const payload = verifyToken(token);
     req.user = payload;
-    next();
+    return next();
   } catch {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
@@ -34,7 +34,7 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.user || !isAdminRole(req.user.role)) {
     return res.status(403).json({ error: "Forbidden: admin only" });
   }
-  next();
+  return next();
 }
 
 // Staff = anyone who works here (admins + instructors + employees). Used by the attendance system.
@@ -46,7 +46,7 @@ export function requireStaff(req: Request, res: Response, next: NextFunction) {
   if (!req.user || !isStaffRole(req.user.role)) {
     return res.status(403).json({ error: "Forbidden: staff only" });
   }
-  next();
+  return next();
 }
 
 export function optionalAuth(req: Request, res: Response, next: NextFunction) {

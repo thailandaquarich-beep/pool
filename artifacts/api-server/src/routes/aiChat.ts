@@ -16,7 +16,7 @@ router.use(authenticate); // every route needs a signed-in user; admin routes ad
 // rather than leak every branch's conversations to a single-branch admin.
 function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
   if (req.user?.role !== "super_admin") return res.status(403).json({ error: "Forbidden: super admin only" });
-  next();
+  return next();
 }
 
 const HISTORY_MAX = 50;

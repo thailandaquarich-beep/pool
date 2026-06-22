@@ -10,7 +10,7 @@ const router = Router();
 
 function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
   if (req.user?.role !== "super_admin") return res.status(403).json({ error: "Forbidden: super admin only" });
-  next();
+  return next();
 }
 
 function serialize(b: typeof branchesTable.$inferSelect, memberCount?: number) {

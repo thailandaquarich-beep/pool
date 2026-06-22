@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { Sparkles, X, Send, Headset, Trash2 } from "lucide-react";
+import { Sparkles, X, Send, Headset, Trash2, Waves } from "lucide-react";
 
 // Calls the local Aquarich AI gateway. In dev, Vite proxies "/ai" -> http://127.0.0.1:8787.
 // Override in prod with VITE_ASSISTANT_BASE.
@@ -15,7 +15,24 @@ const GUEST_KEY = "aqua_chat_guest";
 const HISTORY_MAX = 50;
 const apiBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+const SUGGESTIONS = ["การจองของฉันวันไหน", "ยอดเงินเหลือเท่าไหร่", "สระเปิดกี่โมง", "แพ็กเกจมีอะไรบ้าง"];
+
 type Msg = { role: "user" | "assistant"; content: string };
+
+// น้องอควา's round mascot avatar (brand gradient + water icon).
+const AquaAvatar: FC<{ className?: string }> = ({ className }) => (
+  <div className={cn("rounded-full bg-brand bg-brand-animated text-white flex items-center justify-center shrink-0 ring-1 ring-white/40 shadow", className)}>
+    <Waves className="w-1/2 h-1/2" />
+  </div>
+);
+
+const TypingDots: FC = () => (
+  <span className="inline-flex items-center gap-1 py-1">
+    {[0, 150, 300].map((d) => (
+      <span key={d} className="w-1.5 h-1.5 rounded-full bg-current opacity-60 animate-bounce" style={{ animationDelay: `${d}ms` }} />
+    ))}
+  </span>
+);
 
 export const AssistantWidget: FC = () => {
   const { user } = useAuth();
@@ -106,10 +123,10 @@ export const AssistantWidget: FC = () => {
     return () => { alive = false; clearInterval(iv); };
   }, []);
 
-  const send = async () => {
-    const msg = text.trim();
+  const send = async (override?: string) => {
+    const msg = (override ?? text).trim();
     if (!msg || streaming) return;
-    setText("");
+    if (!override) setText("");
     const history = messages.slice(-20);
     setMessages((m) => [...m, { role: "user", content: msg }, { role: "assistant", content: "" }]);
     setStreaming(true);
@@ -131,7 +148,7 @@ export const AssistantWidget: FC = () => {
       }
       const reader = res.body.getReader();
       const dec = new TextDecoder();
-      let buf = "", acc = "", errored = false;
+      let buf = "", acc = "", errored = false, navTo: string | null = null;
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -144,11 +161,14 @@ export const AssistantWidget: FC = () => {
           const o = JSON.parse(line.slice(5).trim());
           if (o.t) { acc += o.t; setMessages((m) => patchLast(m, acc)); }
           if (o.escalate) setEscalated(true);
+          if (o.nav) navTo = o.nav; // น้องอควา is taking the member to a page / after booking
           if (o.error) { errored = true; setMessages((m) => patchLast(m, `⚠ ${o.error}`)); }
         }
       }
       // Stream finished cleanly — remember this turn server-side (signed-in members only).
       if (!errored && acc.trim()) void persistTurn(msg, acc);
+      // Agent navigation: take the member to the page น้องอควา chose (e.g. /topup, /reservations).
+      if (navTo) { const to = navTo; setTimeout(() => { setOpen(false); navigate(to); }, 700); }
     } catch (err) {
       setMessages((m) => patchLast(m, "⚠ เชื่อมต่อผู้ช่วยไม่ได้"));
     } finally {
@@ -167,28 +187,40 @@ export const AssistantWidget: FC = () => {
       {/* Floating button */}
       <button
         onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-5 right-5 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-primary to-cyan-400 text-white shadow-lg flex items-center justify-center hover:scale-105 transition-transform"
-        aria-label="ผู้ช่วย AI"
+        className="fixed bottom-5 right-5 z-50 group"
+        aria-label="ผู้ช่วย AI น้องอควา"
         data-testid="button-assistant"
       >
-        {open ? <X className="w-6 h-6" /> : <Sparkles className="w-6 h-6" />}
+        {!open && <span className="absolute inset-0 rounded-full bg-primary/40 blur-md animate-ping" />}
+        <span className={cn(
+          "relative w-14 h-14 rounded-full bg-brand bg-brand-animated text-white shadow-xl shadow-primary/40 ring-2 ring-white/40 flex items-center justify-center transition-transform group-hover:scale-110 group-active:scale-95 sheen",
+        )}>
+          {open ? <X className="w-6 h-6" /> : <Sparkles className="w-6 h-6" />}
+        </span>
+        {!open && enabled && (
+          <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-400 ring-2 ring-background" />
+        )}
       </button>
 
       {/* Panel */}
       {open && (
-        <div className="fixed bottom-24 right-5 z-50 w-[min(92vw,380px)] h-[min(70vh,560px)] bg-card border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-          <div className="px-4 py-3 border-b border-border bg-primary/5 flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-primary" />
-            <div className="flex-1">
-              <p className="font-semibold text-sm leading-tight">น้องอควา</p>
-              <p className="text-xs text-muted-foreground">ผู้ช่วย AI · ดูข้อมูลการจอง/ยอดเงินของคุณได้</p>
+        <div className="fixed bottom-24 right-5 z-50 w-[min(92vw,380px)] h-[min(72vh,580px)] bg-card border border-border/60 rounded-3xl shadow-2xl shadow-primary/10 flex flex-col overflow-hidden animate-rise">
+          {/* Header */}
+          <div className="relative px-4 py-3.5 text-white bg-brand bg-brand-animated sheen flex items-center gap-3 overflow-hidden">
+            <div className="pointer-events-none absolute -top-8 -right-6 w-28 h-28 rounded-full bg-white/15 blur-2xl" />
+            <AquaAvatar className="w-10 h-10 relative ring-2 ring-white/50" />
+            <div className="flex-1 min-w-0 relative">
+              <p className="font-display font-bold text-base leading-tight drop-shadow-sm">น้องอควา</p>
+              <p className="text-[11px] text-white/85 flex items-center gap-1.5">
+                <span className={cn("w-1.5 h-1.5 rounded-full", enabled ? "bg-emerald-300 animate-pulse" : "bg-white/40")} />
+                {enabled ? "ผู้ช่วย AI · พร้อมช่วยเหลือ" : "ปิดให้บริการชั่วคราว"}
+              </p>
             </div>
-            {!enabled && <span className="text-xs text-destructive">ปิดชั่วคราว</span>}
             {messages.length > 0 && (
               <button
                 onClick={clearChat}
                 disabled={streaming}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
+                className="relative p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/15 transition-colors disabled:opacity-40"
                 aria-label="ล้างประวัติการสนทนา"
                 title="ล้างประวัติการสนทนา"
                 data-testid="button-assistant-clear"
@@ -196,30 +228,56 @@ export const AssistantWidget: FC = () => {
                 <Trash2 className="w-4 h-4" />
               </button>
             )}
+            <button onClick={() => setOpen(false)} className="relative p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/15 transition-colors" aria-label="ปิด">
+              <X className="w-4 h-4" />
+            </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-gradient-to-b from-secondary/20 to-transparent">
             {messages.length === 0 && (
-              <div className="text-center text-xs text-muted-foreground py-8 px-4">
-                สวัสดีค่ะ ถามน้องอควาได้เลย เช่น<br />
-                "การจองของฉันวันไหน", "ยอดเงินเหลือเท่าไหร่", "สระเปิดกี่โมง"
-              </div>
-            )}
-            {messages.map((m, idx) => (
-              <div key={idx} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-                <div className={cn(
-                  "max-w-[80%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap break-words",
-                  m.role === "user" ? "bg-primary text-white rounded-br-sm" : "bg-muted rounded-bl-sm"
-                )}>
-                  {m.content || (streaming && idx === messages.length - 1 ? "…" : "")}
+              <div className="flex flex-col items-center text-center gap-3 py-6 px-2">
+                <AquaAvatar className="w-16 h-16 shadow-lg" />
+                <div>
+                  <p className="font-semibold text-sm">สวัสดีค่ะ 🌊 น้องอควายินดีช่วยเหลือ</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">ถามเรื่องการจอง ยอดเงิน แพ็กเกจ หรือเวลาเปิด-ปิดได้เลยค่ะ</p>
+                </div>
+                <div className="flex flex-wrap justify-center gap-1.5 pt-1">
+                  {SUGGESTIONS.map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => send(q)}
+                      disabled={!enabled || streaming}
+                      className="text-xs px-3 py-1.5 rounded-full border border-primary/30 text-primary bg-primary/5 hover:bg-primary/10 transition-colors disabled:opacity-50"
+                    >
+                      {q}
+                    </button>
+                  ))}
                 </div>
               </div>
-            ))}
+            )}
+            {messages.map((m, idx) => {
+              const isUser = m.role === "user";
+              const isStreamingLast = streaming && idx === messages.length - 1 && !m.content;
+              return (
+                <div key={idx} className={cn("flex items-end gap-2", isUser ? "justify-end" : "justify-start")}>
+                  {!isUser && <AquaAvatar className="w-7 h-7 mb-0.5" />}
+                  <div className={cn(
+                    "max-w-[78%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap break-words shadow-sm",
+                    isUser
+                      ? "bg-gradient-to-br from-primary to-cyan-500 text-white rounded-br-md"
+                      : "bg-card border border-border/70 rounded-bl-md",
+                  )}>
+                    {m.content || (isStreamingLast ? <TypingDots /> : "")}
+                  </div>
+                </div>
+              );
+            })}
             <div ref={endRef} />
           </div>
 
           {escalated && (
-            <div className="px-3 py-2 border-t border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30">
+            <div className="px-3 py-2.5 border-t border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30">
               <p className="text-xs text-amber-800 dark:text-amber-300 mb-1.5">ดูเหมือนเรื่องนี้ต้องให้เจ้าหน้าที่ช่วยนะคะ</p>
               <Button
                 size="sm"
@@ -231,18 +289,25 @@ export const AssistantWidget: FC = () => {
             </div>
           )}
 
-          <div className="p-3 border-t border-border flex gap-2 items-end">
+          {/* Input */}
+          <div className="p-3 border-t border-border/60 bg-card/80 backdrop-blur flex gap-2 items-end">
             <Textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={onKey}
-              placeholder="พิมพ์ข้อความ…"
+              placeholder={enabled ? "พิมพ์ข้อความ…" : "ผู้ช่วยปิดให้บริการชั่วคราว"}
               rows={1}
-              className="resize-none min-h-9 max-h-28"
+              className="resize-none min-h-10 max-h-28 rounded-2xl bg-secondary/40 border-border/60 focus-visible:ring-primary/40"
               disabled={!enabled}
               data-testid="input-assistant"
             />
-            <Button size="icon" onClick={send} disabled={!text.trim() || streaming || !enabled} data-testid="button-assistant-send">
+            <Button
+              size="icon"
+              onClick={() => send()}
+              disabled={!text.trim() || streaming || !enabled}
+              className="h-10 w-10 rounded-full shrink-0 bg-gradient-to-br from-primary to-cyan-500 shadow-md shadow-primary/30 hover:shadow-lg hover:shadow-primary/40 active:scale-95 transition-all"
+              data-testid="button-assistant-send"
+            >
               <Send className="w-4 h-4" />
             </Button>
           </div>

@@ -158,9 +158,13 @@ overrides:
   # drizzle-kit uses esbuild internally on an older version that's vulnerable, this overrides it
   "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
   esbuild: "0.27.3"
+  # @types/express-serve-static-core 5.1.x retyped ParamsDictionary values as
+  # `string | string[]`, breaking every `req.params.x` used as a string. Pin to
+  # the 5.0.x line (params typed as `string`) to match the codebase.
+  "@types/express-serve-static-core": "5.0.7"
 
 allowBuilds:
-  '@firebase/util': set this to true or false
-  core-js: set this to true or false
-  esbuild: set this to true or false
-  protobufjs: set this to true or false
+  '@firebase/util': false
+  core-js: false
+  esbuild: true
+  protobufjs: false

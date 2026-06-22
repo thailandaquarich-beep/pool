@@ -33,13 +33,18 @@ async function ensureInstructorForUser(userId: number) {
   if (linked) return linked;
 
   // Reuse an admin-created instructor record with the same email; otherwise create a fresh one.
-  const [byEmail] = await db.select().from(instructorsTable).where(eq(instructorsTable.email, u.email)).limit(1);
+  // users.email is nullable, but instructors.email is required + unique — so only match by
+  // email when the account has one, and fall back to a unique placeholder on create.
+  const [byEmail] = u.email
+    ? await db.select().from(instructorsTable).where(eq(instructorsTable.email, u.email)).limit(1)
+    : [];
   if (byEmail) {
     const [updated] = await db.update(instructorsTable).set({ userId }).where(eq(instructorsTable.id, byEmail.id)).returning();
     return updated;
   }
   const [created] = await db.insert(instructorsTable).values({
-    firstName: u.firstName, lastName: u.lastName, phone: u.phone ?? "-", email: u.email,
+    firstName: u.firstName, lastName: u.lastName, phone: u.phone ?? "-",
+    email: u.email ?? `instructor-${userId}@aquarich.local`,
     specialty: "ครูฝึก", status: "active", userId,
   }).returning();
   return created;
