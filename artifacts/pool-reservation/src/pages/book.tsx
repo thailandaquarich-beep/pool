@@ -22,6 +22,20 @@ type ActiveInstructor = {
   profileImageUrl: string | null;
 };
 
+type TeachingSlot = {
+  id: number;
+  startTime: string;
+  endTime: string;
+  note: string | null;
+  bookedPeople: number;
+  maxPeople: number;
+  remainingPeople: number;
+};
+
+type TeachingInstructor = ActiveInstructor & {
+  slots: TeachingSlot[];
+};
+
 // Modern day cell for the booking calendar (react-day-picker v9 `DayButton` override).
 // Gives the selected day a gradient + glow, highlights "today" with a ring, and
 // dims past/disabled days — keeping the grid large and easy to scan.
@@ -64,6 +78,7 @@ export const Book: FC = () => {
   const [people, setPeople] = useState<number>(1);
   const [notes, setNotes] = useState("");
   const [instructorId, setInstructorId] = useState<number | null>(null);
+  const [memberPackageId, setMemberPackageId] = useState<number | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
   const [bookingPending, setBookingPending] = useState(true);
 
@@ -73,6 +88,7 @@ export const Book: FC = () => {
   const { toast } = useToast();
 
   const slotSectionRef = useRef<HTMLDivElement>(null);
+  const instructorSectionRef = useRef<HTMLDivElement>(null);
   const confirmSectionRef = useRef<HTMLDivElement>(null);
 
   const formattedDate = date ? format(date, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd");
@@ -81,18 +97,38 @@ export const Book: FC = () => {
     { date: formattedDate },
     { query: { queryKey: getGetAvailableSlotsQueryKey({ date: formattedDate }) } }
   );
+  const selectedSlotData = slots?.find(s => s.startTime === selectedSlot);
 
-  // Active instructors a member can optionally request for the session.
-  const { data: instructors } = useQuery<ActiveInstructor[]>({
-    queryKey: ["instructors", "active"],
+  // Instructors who published teaching time on the selected date.
+  const { data: teachingInstructors, isLoading: instructorsLoading } = useQuery<TeachingInstructor[]>({
+    queryKey: ["instructors", "teaching", formattedDate],
     queryFn: async () => {
-      const res = await fetch(`${baseUrl}/api/instructors?status=active`, {
+      const params = new URLSearchParams({ date: formattedDate });
+      const res = await fetch(`${baseUrl}/api/instructors/teaching?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return [];
       return res.json();
     },
+    enabled: !!date,
   });
+
+  const selectedInstructor = teachingInstructors?.find((i) => i.id === instructorId) ?? null;
+
+  const teachingSlotForPoolSlot = (startTime?: string | null, endTime?: string | null) => {
+    if (!selectedInstructor || !startTime || !endTime) return null;
+    return selectedInstructor.slots.find((slot) => slot.startTime <= startTime && slot.endTime >= endTime) ?? null;
+  };
+  const selectedTeacherSlot = teachingSlotForPoolSlot(selectedSlotData?.startTime, selectedSlotData?.endTime);
+
+  useEffect(() => {
+    setInstructorId(null);
+    setSelectedSlot(null);
+  }, [formattedDate]);
+
+  useEffect(() => {
+    setSelectedSlot(null);
+  }, [instructorId]);
 
   const createReservation = useMutation({
     mutationFn: async (data: {
@@ -102,6 +138,7 @@ export const Book: FC = () => {
       numberOfPeople: number;
       notes?: string;
       instructorId?: number | null;
+      memberPackageId: number;
     }) => {
       const res = await fetch(`${baseUrl}/api/reservations`, {
         method: "POST",
@@ -125,10 +162,21 @@ export const Book: FC = () => {
     },
   });
 
-  const selectedInstructor = instructors?.find((i) => i.id === instructorId) ?? null;
-
   // Booking consumes 1 "use" from the member's active package (not money).
-  const { data: usage } = useQuery<{ hasQuota: boolean; hasActivePackage: boolean; totalRemaining: number | null }>({
+  const { data: usage } = useQuery<{
+    hasQuota: boolean;
+    hasActivePackage: boolean;
+    totalRemaining: number | null;
+    packages: Array<{
+      memberPackageId: number;
+      packageId: number;
+      name: string;
+      endDate: string;
+      quota: number | null;
+      used: number;
+      remaining: number | null;
+    }>;
+  }>({
     queryKey: ["packages", "my-usage"],
     queryFn: async () => {
       const res = await fetch(`${baseUrl}/api/packages/my-usage`, { headers: { Authorization: `Bearer ${token}` } });
@@ -140,15 +188,34 @@ export const Book: FC = () => {
   const remaining = usage?.totalRemaining ?? null; // null = unlimited
   const hasQuota = usage?.hasQuota ?? false;
   const hasActivePackage = usage?.hasActivePackage ?? false;
+  const usablePackages = (usage?.packages ?? []).filter((pkg) => pkg.remaining === null || pkg.remaining > 0);
+  const selectedPackage = usablePackages.find((pkg) => pkg.memberPackageId === memberPackageId) ?? null;
+
+  useEffect(() => {
+    if (!memberPackageId && usablePackages.length > 0) {
+      setMemberPackageId(usablePackages[0].memberPackageId);
+    }
+    if (memberPackageId && usablePackages.length > 0 && !usablePackages.some((pkg) => pkg.memberPackageId === memberPackageId)) {
+      setMemberPackageId(usablePackages[0].memberPackageId);
+    }
+  }, [memberPackageId, usablePackages]);
 
   // Scroll to slot section when date is selected
   useEffect(() => {
-    if (date && slotSectionRef.current && !selectedSlot && !isSuccess) {
+    if (date && instructorSectionRef.current && !instructorId && !isSuccess) {
+      setTimeout(() => {
+        instructorSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  }, [date, instructorId, isSuccess]);
+
+  useEffect(() => {
+    if (instructorId && slotSectionRef.current && !selectedSlot && !isSuccess) {
       setTimeout(() => {
         slotSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
     }
-  }, [date, isSuccess]);
+  }, [instructorId, selectedSlot, isSuccess]);
 
   // Scroll to confirm section when slot is selected
   useEffect(() => {
@@ -172,9 +239,30 @@ export const Book: FC = () => {
 
   const handleBook = () => {
     if (!selectedSlot || !date) return;
+    if (!instructorId || !selectedInstructor) {
+      toast({ title: "กรุณาเลือกครูฝึกก่อนจอง", variant: "destructive" });
+      return;
+    }
     
     const slot = slots?.find(s => s.startTime === selectedSlot);
     if (!slot) return;
+    const teacherSlot = teachingSlotForPoolSlot(slot.startTime, slot.endTime);
+    if (!teacherSlot) {
+      toast({ title: "ครูฝึกไม่ได้ลงเวลาสอนในรอบนี้", variant: "destructive" });
+      return;
+    }
+    if (people > teacherSlot.remainingPeople) {
+      toast({
+        title: "จำนวนผู้เรียนเกินที่ครูรับได้",
+        description: `ครูฝึกรับได้อีก ${teacherSlot.remainingPeople} คนในช่วงเวลานี้`,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!memberPackageId || !selectedPackage) {
+      toast({ title: "กรุณาเลือกแพ็กเกจที่จะใช้จอง", variant: "destructive" });
+      return;
+    }
 
     createReservation.mutate({
       date: formattedDate,
@@ -183,12 +271,11 @@ export const Book: FC = () => {
       numberOfPeople: people,
       notes: notes || undefined,
       instructorId,
+      memberPackageId,
     });
   };
 
-  const selectedSlotData = slots?.find(s => s.startTime === selectedSlot);
-  
-  const step = isSuccess ? 4 : selectedSlot ? 3 : date ? 2 : 1;
+  const step = isSuccess ? 4 : selectedSlot ? 4 : instructorId ? 3 : date ? 2 : 1;
 
   if (isSuccess) {
     return (
@@ -256,7 +343,7 @@ export const Book: FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background pb-24 font-sans">
       {/* Wavy/gradient header */}
       <div className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-cyan-50/50 to-background dark:from-primary/20 dark:via-cyan-900/20 dark:to-background py-16 px-4">
         <div className="max-w-4xl mx-auto space-y-6 relative z-10">
@@ -264,16 +351,18 @@ export const Book: FC = () => {
           <div className="flex items-center justify-center space-x-2 sm:space-x-4 text-xs sm:text-sm font-medium text-muted-foreground">
             <span className={cn("transition-colors", step >= 1 ? "text-primary" : "")}>1 เลือกวัน</span>
             <span>&gt;</span>
-            <span className={cn("transition-colors", step >= 2 ? "text-primary" : "")}>2 เลือกเวลา</span>
+            <span className={cn("transition-colors", step >= 2 ? "text-primary" : "")}>2 เลือกครู</span>
             <span>&gt;</span>
-            <span className={cn("transition-colors", step >= 3 ? "text-primary" : "")}>3 ยืนยัน</span>
+            <span className={cn("transition-colors", step >= 3 ? "text-primary" : "")}>3 เลือกเวลา</span>
+            <span>&gt;</span>
+            <span className={cn("transition-colors", step >= 4 ? "text-primary" : "")}>4 ยืนยัน</span>
           </div>
 
           <div className="text-center space-y-2">
-            <h1 className="text-4xl md:text-5xl font-display font-extrabold tracking-tight text-gradient">
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-display font-extrabold tracking-tight text-gradient">
               จองสระว่ายน้ำ
             </h1>
-            <p className="text-lg text-muted-foreground flex items-center justify-center gap-2">
+            <p className="text-base sm:text-lg text-muted-foreground flex items-center justify-center gap-2">
               <Waves className="w-5 h-5 text-cyan-500" />
               เลือกวันที่ต้องการ
               <Waves className="w-5 h-5 text-cyan-500" />
@@ -342,8 +431,90 @@ export const Book: FC = () => {
           </CardContent>
         </Card>
 
-        {/* STEP 2: SELECT SESSION */}
-        <div ref={slotSectionRef} className={cn("transition-all duration-700 space-y-6", date ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8 pointer-events-none hidden")}>
+        {/* STEP 2: SELECT INSTRUCTOR */}
+        <div ref={instructorSectionRef} className={cn("transition-all duration-700 space-y-6", date ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8 pointer-events-none hidden")}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-2xl font-bold flex items-center gap-2">
+                <GraduationCap className="w-6 h-6 text-primary" />
+                เลือกครูฝึกก่อนจอง
+              </h2>
+              <p className="text-sm text-muted-foreground">สมาชิกต้องเลือกครูฝึก แล้วระบบจะแสดงเฉพาะเวลาที่ครูคนนั้นลงสอน</p>
+            </div>
+            {date && <span className="text-sm text-muted-foreground">{format(date, "d MMM yyyy", { locale: th })}</span>}
+          </div>
+
+          {instructorsLoading ? (
+            <div className="flex items-center justify-center p-10 rounded-3xl border bg-card/80">
+              <Loader2 className="w-7 h-7 animate-spin text-primary" />
+            </div>
+          ) : teachingInstructors && teachingInstructors.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {teachingInstructors.map((inst) => {
+                const active = instructorId === inst.id;
+                const firstNote = inst.slots.find((slot) => slot.note)?.note;
+                return (
+                  <button
+                    key={inst.id}
+                    type="button"
+                    onClick={() => setInstructorId(inst.id)}
+                    className={cn(
+                      "group rounded-3xl border-2 bg-card/85 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg",
+                      active ? "border-primary ring-4 ring-primary/15" : "border-border/70 hover:border-primary/50",
+                    )}
+                  >
+                    <div className="flex gap-4">
+                      <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-primary/15 text-primary flex items-center justify-center text-lg font-bold">
+                        {inst.profileImageUrl ? (
+                          <img src={inst.profileImageUrl} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          `${inst.firstName?.[0] ?? ""}${inst.lastName?.[0] ?? ""}`
+                        )}
+                        {active && (
+                          <span className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                            <Check className="h-3.5 w-3.5" />
+                          </span>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="truncate text-lg font-bold">{inst.firstName} {inst.lastName}</h3>
+                        <p className="text-sm text-muted-foreground">{inst.specialty || "ครูฝึกว่ายน้ำ"}</p>
+                        {inst.experience && <p className="text-xs text-muted-foreground">ประสบการณ์ {inst.experience}</p>}
+                      </div>
+                    </div>
+
+                    {firstNote && (
+                      <div className="mt-3 rounded-2xl bg-primary/8 border border-primary/15 px-3 py-2 text-sm text-primary">
+                        คอร์ส/หมายเหตุ: {firstNote}
+                      </div>
+                    )}
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {inst.slots.slice(0, 4).map((slot) => (
+                        <span key={slot.id} className="rounded-full bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground">
+                          {slot.startTime}-{slot.endTime}
+                          {slot.note ? ` · ${slot.note}` : ""}
+                        </span>
+                      ))}
+                      {inst.slots.length > 4 && (
+                        <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">+{inst.slots.length - 4} เวลา</span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-3xl border-2 border-dashed bg-muted/40 p-8 text-center">
+              <GraduationCap className="mx-auto mb-3 h-10 w-10 text-muted-foreground/60" />
+              <p className="font-medium">วันนี้ยังไม่มีครูฝึกลงเวลาสอน</p>
+              <p className="text-sm text-muted-foreground">ลองเลือกวันอื่น หรือแจ้งแอดมินให้เพิ่มตารางสอนครูฝึก</p>
+            </div>
+          )}
+        </div>
+
+        {/* STEP 3: SELECT SESSION */}
+        <div ref={slotSectionRef} className={cn("transition-all duration-700 space-y-6", instructorId ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8 pointer-events-none hidden")}>
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-bold flex items-center gap-2">
               <Clock className="w-6 h-6 text-primary" />
@@ -359,26 +530,38 @@ export const Book: FC = () => {
           ) : slots && slots.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {slots.map((slot) => {
-                const isFull = slot.currentPeople >= slot.maxPeople;
+                const isFull = false;
                 const isMaintenance = !slot.available;
                 const isSelected = selectedSlot === slot.startTime;
-                const pct = Math.round((slot.currentPeople / slot.maxPeople) * 100);
+                const teacherSlot = teachingSlotForPoolSlot(slot.startTime, slot.endTime);
+                const isTeacherUnavailable = !teacherSlot || teacherSlot.remainingPeople <= 0;
+                const teacherBookedPeople = teacherSlot?.bookedPeople ?? 0;
+                const teacherMaxPeople = teacherSlot?.maxPeople ?? 5;
+                const pct = Math.round((teacherBookedPeople / teacherMaxPeople) * 100);
                 
                 let statusColor = "emerald";
                 if (pct >= 80 || isFull) statusColor = "rose";
                 else if (pct >= 50) statusColor = "amber";
 
-                const isUnavailable = isFull || isMaintenance;
+                const isUnavailable = isMaintenance || isTeacherUnavailable;
 
                 return (
                   <div
                     key={slot.startTime}
                     role="button"
                     tabIndex={0}
-                    onClick={() => !isUnavailable && setSelectedSlot(slot.startTime)}
+                    onClick={() => {
+                      if (!isUnavailable) {
+                        setSelectedSlot(slot.startTime);
+                        setPeople(1);
+                      }
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
-                        if (!isUnavailable) setSelectedSlot(slot.startTime);
+                        if (!isUnavailable) {
+                          setSelectedSlot(slot.startTime);
+                          setPeople(1);
+                        }
                       }
                     }}
                     className={cn(
@@ -399,14 +582,27 @@ export const Book: FC = () => {
                         "px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider",
                         isMaintenance ? "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300" :
                         isFull ? "bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-400" :
+                        isTeacherUnavailable ? "bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-400" :
                         isSelected ? "bg-primary text-primary-foreground" :
                         statusColor === "emerald" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400" :
                         statusColor === "amber" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400" :
                         "bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-400"
                       )}>
-                        {isMaintenance ? "ปิดปรับปรุง" : isFull ? "เต็มแล้ว" : isSelected ? "เลือกแล้ว" : "ว่าง"}
+                        {isMaintenance ? "ปิดปรับปรุง" : isFull ? "สระเต็ม" : isTeacherUnavailable ? "ครูไม่ว่าง" : isSelected ? "เลือกแล้ว" : "ว่าง"}
                       </div>
                     </div>
+
+                    {teacherSlot && (
+                      <div className="mb-4 rounded-xl border border-primary/15 bg-primary/5 px-3 py-2 text-sm">
+                        <div className="font-semibold text-primary">
+                          {selectedInstructor?.firstName} {selectedInstructor?.lastName} สอนช่วงนี้
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          จองแล้ว {teacherSlot.bookedPeople}/{teacherSlot.maxPeople} คน · รับได้อีก {teacherSlot.remainingPeople} คน
+                          {teacherSlot.note ? ` · คอร์ส/หมายเหตุ: ${teacherSlot.note}` : ""}
+                        </div>
+                      </div>
+                    )}
 
                     <div className="space-y-2 mb-4">
                       <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
@@ -421,7 +617,7 @@ export const Book: FC = () => {
                         />
                       </div>
                       <div className="flex justify-between text-sm font-medium text-muted-foreground">
-                        <span>{slot.currentPeople} / {slot.maxPeople} ที่นั่ง</span>
+                        <span>ครูคนนี้ {teacherBookedPeople} / {teacherMaxPeople} คน</span>
                         <span>{pct}%</span>
                       </div>
                     </div>
@@ -467,6 +663,28 @@ export const Book: FC = () => {
                 </div>
               </div>
 
+              {selectedInstructor && (
+                <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5">
+                  <div className="flex gap-4">
+                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-primary/15 text-primary flex items-center justify-center font-bold">
+                      {selectedInstructor.profileImageUrl ? (
+                        <img src={selectedInstructor.profileImageUrl} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        `${selectedInstructor.firstName?.[0] ?? ""}${selectedInstructor.lastName?.[0] ?? ""}`
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">ครูฝึกที่เลือก</p>
+                      <h3 className="text-lg font-bold">{selectedInstructor.firstName} {selectedInstructor.lastName}</h3>
+                      <p className="text-sm text-muted-foreground">{selectedInstructor.specialty || "ครูฝึกว่ายน้ำ"}</p>
+                      {selectedTeacherSlot?.note && (
+                        <p className="mt-1 text-sm text-primary">คอร์ส/หมายเหตุ: {selectedTeacherSlot.note}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="grid md:grid-cols-2 gap-8">
                 {/* Stepper */}
                 <div className="space-y-4">
@@ -483,8 +701,14 @@ export const Book: FC = () => {
                       {people}
                     </div>
                     <button 
-                      onClick={() => setPeople(Math.min(10, Math.min(selectedSlotData ? selectedSlotData.maxPeople - selectedSlotData.currentPeople : 10, people + 1)))}
-                      disabled={people >= 10 || (selectedSlotData && people >= selectedSlotData.maxPeople - selectedSlotData.currentPeople)}
+                      onClick={() => setPeople(Math.min(
+                        selectedTeacherSlot ? selectedTeacherSlot.remainingPeople : 1,
+                        people + 1,
+                      ))}
+                      disabled={
+                        !selectedTeacherSlot ||
+                        people >= selectedTeacherSlot.remainingPeople
+                      }
                       className="w-12 h-12 rounded-xl bg-background shadow-sm flex items-center justify-center text-foreground hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[48px] min-h-[48px]"
                     >
                       <Plus className="w-5 h-5" />
@@ -492,7 +716,7 @@ export const Book: FC = () => {
                   </div>
                   <p className="text-sm text-muted-foreground flex items-center gap-1.5">
                     <Users className="w-4 h-4" />
-                    จองได้สูงสุด 10 ท่านต่อครั้ง
+                    ครูฝึกรับได้อีก {selectedTeacherSlot?.remainingPeople ?? 0} คนในช่วงเวลานี้
                   </p>
                 </div>
 
@@ -508,68 +732,6 @@ export const Book: FC = () => {
                 </div>
               </div>
 
-              {/* Optional instructor picker */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                    <GraduationCap className="w-4 h-4" /> เลือกครูฝึก (ถ้าต้องการ)
-                  </label>
-                  {instructorId !== null && (
-                    <button onClick={() => setInstructorId(null)} className="text-xs text-muted-foreground hover:text-foreground underline">
-                      ล้างการเลือก
-                    </button>
-                  )}
-                </div>
-
-                {!instructors || instructors.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">ยังไม่มีครูฝึกให้เลือกในขณะนี้</p>
-                ) : (
-                  <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
-                    <button
-                      onClick={() => setInstructorId(null)}
-                      className={cn(
-                        "shrink-0 w-28 rounded-2xl border-2 p-3 flex flex-col items-center gap-2 text-center transition-all",
-                        instructorId === null ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "border-transparent bg-secondary hover:border-primary/40",
-                      )}
-                    >
-                      <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-                        <Users className="w-5 h-5 text-muted-foreground" />
-                      </div>
-                      <span className="text-xs font-medium">ไม่ระบุ</span>
-                    </button>
-
-                    {instructors.map((inst) => {
-                      const active = instructorId === inst.id;
-                      return (
-                        <button
-                          key={inst.id}
-                          onClick={() => setInstructorId(inst.id)}
-                          className={cn(
-                            "relative shrink-0 w-28 rounded-2xl border-2 p-3 flex flex-col items-center gap-2 text-center transition-all",
-                            active ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "border-transparent bg-secondary hover:border-primary/40",
-                          )}
-                        >
-                          {active && (
-                            <span className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
-                              <Check className="w-3 h-3" />
-                            </span>
-                          )}
-                          <div className="w-12 h-12 rounded-full bg-primary/15 text-primary font-bold flex items-center justify-center overflow-hidden">
-                            {inst.profileImageUrl ? (
-                              <img src={inst.profileImageUrl} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              `${inst.firstName?.[0] ?? ""}${inst.lastName?.[0] ?? ""}`
-                            )}
-                          </div>
-                          <span className="text-xs font-medium leading-tight line-clamp-2">{inst.firstName} {inst.lastName}</span>
-                          {inst.specialty && <span className="text-[10px] text-muted-foreground line-clamp-1">{inst.specialty}</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
               {/* Package quota summary */}
               <div className="rounded-2xl border bg-secondary/30 p-5 space-y-3">
                 <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
@@ -581,9 +743,43 @@ export const Book: FC = () => {
                     {remaining === null ? "ไม่จำกัด" : `${remaining} ครั้ง`}
                   </span>
                 </div>
+                {usablePackages.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">เลือกแพ็กเกจที่จะใช้หักแต้ม</p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {usablePackages.map((pkg) => {
+                        const active = memberPackageId === pkg.memberPackageId;
+                        return (
+                          <button
+                            key={pkg.memberPackageId}
+                            type="button"
+                            onClick={() => setMemberPackageId(pkg.memberPackageId)}
+                            className={cn(
+                              "rounded-2xl border-2 bg-background p-3 text-left transition-all",
+                              active ? "border-primary ring-4 ring-primary/15" : "border-border hover:border-primary/50",
+                            )}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="font-semibold">{pkg.name}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  หมดอายุ {new Date(pkg.endDate).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}
+                                </div>
+                              </div>
+                              {active && <Check className="h-5 w-5 text-primary" />}
+                            </div>
+                            <div className="mt-2 text-sm text-primary font-bold">
+                              คงเหลือ {pkg.remaining === null ? "ไม่จำกัด" : `${pkg.remaining} ครั้ง`}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-start gap-2 rounded-xl bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 p-3 text-xs">
                   <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                  การจองจะถูก "หัก 1 ครั้ง" เมื่อแอดมินยืนยันการจอง (หรือทันทีหากเปิดยืนยันอัตโนมัติ)
+                  การจองจะหัก 1 ครั้งจากแพ็กเกจที่เลือกทันที หากยังอยู่ระหว่างอนุมัติและยกเลิก ระบบจะคืนแต้มให้อัตโนมัติ
                 </div>
                 {!hasQuota && (
                   <div className="flex items-start gap-2 rounded-xl bg-destructive/10 text-destructive p-3 text-sm">
@@ -616,18 +812,18 @@ export const Book: FC = () => {
           <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="text-center sm:text-left">
               <p className="text-sm font-medium text-muted-foreground mb-1">
-                รวม {people} ท่าน · ที่นั่งว่างอีก {selectedSlotData ? selectedSlotData.maxPeople - selectedSlotData.currentPeople : 0} ที่
+                {selectedInstructor ? `ครู${selectedInstructor.firstName} ${selectedInstructor.lastName}` : "ยังไม่ได้เลือกครู"} · รวม {people} ท่าน
               </p>
               <p className="text-lg font-bold flex items-center gap-1.5">
                 <Ticket className="w-4 h-4 text-primary" />
-                {remaining === null ? "ใช้ได้ไม่จำกัด" : <>คงเหลือ {remaining} ครั้ง</>}
+                {selectedPackage ? <>ใช้แพ็กเกจ: {selectedPackage.name}</> : "กรุณาเลือกแพ็กเกจ"}
               </p>
             </div>
 
             <Button
               size="lg"
               onClick={handleBook}
-              disabled={createReservation.isPending || !hasQuota}
+              disabled={createReservation.isPending || !hasQuota || !selectedInstructor || !selectedTeacherSlot || !selectedPackage || people > selectedTeacherSlot.remainingPeople}
               className="w-full sm:w-auto min-h-[56px] px-8 rounded-full bg-gradient-to-r from-primary to-cyan-500 hover:from-primary/90 hover:to-cyan-500/90 text-white shadow-lg shadow-primary/25 text-lg font-bold transition-all hover:scale-105 disabled:opacity-60 disabled:hover:scale-100"
             >
               {createReservation.isPending ? (

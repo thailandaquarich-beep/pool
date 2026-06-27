@@ -2,9 +2,10 @@ import fs from "fs/promises";
 import path from "path";
 import { type User } from "@workspace/db";
 import { dataDirs } from "./dataPaths.js";
+import { decryptText, encryptedExtension, encryptText, encryptionStatus } from "./cryptoVault.js";
 
 const backupRoot = dataDirs.customers;
-const latestBackupPath = path.join(backupRoot, "latest-users-backup.json");
+const latestBackupPath = path.join(backupRoot, encryptedExtension("latest-users-backup.json"));
 
 export type BackupUser = Omit<User, "createdAt"> & {
   createdAt: string;
@@ -33,17 +34,17 @@ export async function backupUsers(users: User[]): Promise<void> {
 
   const json = JSON.stringify(payload, null, 2);
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const backupFile = path.join(backupRoot, `users-backup-${timestamp}.json`);
+  const backupFile = path.join(backupRoot, encryptedExtension(`users-backup-${timestamp}.json`));
 
-  await fs.writeFile(backupFile, json, "utf-8");
-  await fs.writeFile(latestBackupPath, json, "utf-8");
+  await fs.writeFile(backupFile, encryptText(json), "utf-8");
+  await fs.writeFile(latestBackupPath, encryptText(json), "utf-8");
 }
 
 export async function listBackupFiles(): Promise<string[]> {
   await ensureBackupFolder();
   const entries = await fs.readdir(backupRoot, { withFileTypes: true });
   return entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json.enc"))
     .map((entry) => entry.name)
     .sort((a, b) => b.localeCompare(a));
 }
@@ -58,7 +59,12 @@ export async function getBackupFilePath(filename: string): Promise<string> {
 export async function readBackupFile(filename: string): Promise<{ users: BackupUser[] }> {
   const filePath = await getBackupFilePath(filename);
   const text = await fs.readFile(filePath, "utf-8");
-  return JSON.parse(text) as { users: BackupUser[] };
+  return JSON.parse(decryptText(text)) as { users: BackupUser[] };
+}
+
+export async function readEncryptedBackupFile(filename: string): Promise<string> {
+  const filePath = await getBackupFilePath(filename);
+  return fs.readFile(filePath, "utf-8");
 }
 
 // Comprehensive snapshot of EVERY table into a dated folder (one tidy file per table)
@@ -82,6 +88,7 @@ export async function runFullBackup(): Promise<{ file: string; counts: Record<st
     membership_packages: m.membershipPackagesTable,
     member_packages: m.memberPackagesTable,
     package_usages: m.packageUsagesTable,
+    member_package_events: m.memberPackageEventsTable,
     products: m.productsTable,
     orders: m.ordersTable,
     member_addons: m.memberAddonsTable,
@@ -91,8 +98,10 @@ export async function runFullBackup(): Promise<{ file: string; counts: Record<st
     dev_tickets: m.devTicketsTable,
     dev_ticket_messages: m.devTicketMessagesTable,
     attendance: m.attendanceTable,
+    staff_tasks: m.staffTasksTable,
     branches: m.branchesTable,
     leave_requests: m.leaveRequestsTable,
+    audit_logs: m.auditLogsTable,
   };
 
   const createdAt = new Date().toISOString();
@@ -107,14 +116,14 @@ export async function runFullBackup(): Promise<{ file: string; counts: Record<st
     const rows = await db.select().from(table);
     counts[name] = rows.length;
     combined[name] = rows;
-    await fs.writeFile(path.join(folder, `${name}.json`), JSON.stringify(rows, null, 2), "utf-8");
+    await fs.writeFile(path.join(folder, encryptedExtension(`${name}.json`)), encryptText(JSON.stringify(rows, null, 2)), "utf-8");
   }
 
-  await fs.writeFile(path.join(folder, "manifest.json"), JSON.stringify({ createdAt, counts }, null, 2), "utf-8");
-  // combined "latest" snapshot for quick download / backward compatibility
+  await fs.writeFile(path.join(folder, encryptedExtension("manifest.json")), encryptText(JSON.stringify({ createdAt, counts }, null, 2)), "utf-8");
+  // Combined encrypted "latest" snapshot for quick download / backward compatibility.
   await fs.writeFile(
-    path.join(dataDirs.backups, "latest-full-backup.json"),
-    JSON.stringify({ createdAt, counts, tables: combined }, null, 2),
+    path.join(dataDirs.backups, encryptedExtension("latest-full-backup.json")),
+    encryptText(JSON.stringify({ createdAt, counts, tables: combined }, null, 2)),
     "utf-8",
   );
 
@@ -124,5 +133,9 @@ export async function runFullBackup(): Promise<{ file: string; counts: Record<st
 export async function listFullBackups(): Promise<string[]> {
   await fs.mkdir(dataDirs.backups, { recursive: true });
   const entries = await fs.readdir(dataDirs.backups);
-  return entries.filter((f) => f.endsWith(".json")).sort((a, b) => b.localeCompare(a));
+  return entries.filter((f) => f.endsWith(".json.enc")).sort((a, b) => b.localeCompare(a));
+}
+
+export function backupEncryptionStatus() {
+  return encryptionStatus();
 }

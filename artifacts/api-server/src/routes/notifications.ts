@@ -10,6 +10,7 @@ import {
 import { eq, and, desc, gte, ne, inArray } from "drizzle-orm";
 import { authenticate } from "../middlewares/auth.js";
 import { attachBranch } from "../middlewares/branch.js";
+import { bangkokDate } from "../lib/date.js";
 
 const router = Router();
 
@@ -129,7 +130,7 @@ async function buildNotifications(user: { userId: number; role: string }, branch
     const [inst] = await db.select({ id: instructorsTable.id })
       .from(instructorsTable).where(eq(instructorsTable.userId, uid)).limit(1);
     if (inst) {
-      const today = now.toISOString().slice(0, 10);
+      const today = bangkokDate(now);
       const bk = await db
         .select({
           id: reservationsTable.id, date: reservationsTable.date, startTime: reservationsTable.startTime,

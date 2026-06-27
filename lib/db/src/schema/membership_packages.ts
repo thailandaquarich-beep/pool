@@ -6,6 +6,7 @@ export const membershipPackagesTable = pgTable("membership_packages", {
   nameEn: text("name_en").notNull(),
   description: text("description"),
   descriptionEn: text("description_en"),
+  imageUrl: text("image_url"),
   price: numeric("price", { precision: 10, scale: 2 }).notNull(),
   durationDays: integer("duration_days").notNull(),
   benefits: text("benefits"),

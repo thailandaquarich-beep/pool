@@ -14,6 +14,7 @@ import {
   facilitiesTable,
 } from "@workspace/db";
 import { eq, and, gte, ne, desc } from "drizzle-orm";
+import { bangkokDate } from "./date.js";
 
 export const AI_CHAT_ENABLED = process.env.AI_CHAT_ENABLED === "true";
 const OLLAMA = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
@@ -62,7 +63,7 @@ function thb(n: unknown): string {
 }
 
 async function buildMemberContext(userId: number): Promise<string> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = bangkokDate();
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
   if (!user) return "ข้อมูลสมาชิก: ไม่พบข้อมูลผู้ใช้";
 

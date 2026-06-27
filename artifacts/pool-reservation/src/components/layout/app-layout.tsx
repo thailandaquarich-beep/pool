@@ -11,7 +11,7 @@ interface AppLayoutProps {
 }
 
 export const AppLayout: FC<AppLayoutProps> = ({ children }) => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isAdmin } = useAuth();
   const [location] = useLocation();
   const mainRef = useRef<HTMLElement>(null);
 
@@ -31,7 +31,10 @@ export const AppLayout: FC<AppLayoutProps> = ({ children }) => {
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative z-10">
         <Header />
-        <main ref={mainRef} className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 lg:p-8">
+        <main
+          ref={mainRef}
+          className={`flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6 lg:p-8 pb-[max(0.75rem,env(safe-area-inset-bottom))] ${isAdmin ? "admin-portal" : "member-portal"}`}
+        >
           {/* keyed wrapper → quick GPU fade/slide on each navigation */}
           <div key={location} className="animate-page">
             {children}

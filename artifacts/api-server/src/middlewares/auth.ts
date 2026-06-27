@@ -37,6 +37,13 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   return next();
 }
 
+export function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.user || req.user.role !== "super_admin") {
+    return res.status(403).json({ error: "Forbidden: super admin only" });
+  }
+  return next();
+}
+
 // Staff = anyone who works here (admins + instructors + employees). Used by the attendance system.
 export function isStaffRole(role?: string): boolean {
   return role === "admin" || role === "super_admin" || role === "instructor" || role === "staff";

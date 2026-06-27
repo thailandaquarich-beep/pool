@@ -10,6 +10,7 @@ import {
 
 /* localStorage flag — set when the visitor ticks "don't show again". */
 const HIDE_KEY = "aquarich_landing_popup_hidden";
+const SEEN_KEY = "aquarich_landing_popup_seen";
 /* routes where the welcome popup would get in the way (auth forms) */
 const SUPPRESS_ON = ["/login", "/register"];
 
@@ -30,9 +31,12 @@ export const LandingPopup: FC = () => {
   // and only if the visitor hasn't opted out. Small delay lets the app settle.
   useEffect(() => {
     if (isLoading) return;
-    if (localStorage.getItem(HIDE_KEY) === "1") return;
+    if (localStorage.getItem(HIDE_KEY) === "1" || localStorage.getItem(SEEN_KEY) === "1") return;
     if (SUPPRESS_ON.some((p) => location.startsWith(p))) return;
-    const id = window.setTimeout(() => setOpen(true), 550);
+    const id = window.setTimeout(() => {
+      localStorage.setItem(SEEN_KEY, "1");
+      setOpen(true);
+    }, 550);
     return () => window.clearTimeout(id);
   }, [isLoading, location]);
 
@@ -80,7 +84,7 @@ export const LandingPopup: FC = () => {
         role="dialog"
         aria-modal="true"
         aria-label={t("popup.welcome")}
-        className="relative z-10 w-full max-w-lg rounded-3xl overflow-hidden glass shadow-2xl shadow-primary/20 animate-rise"
+        className="relative z-10 box-border min-w-0 w-[calc(100vw-1.5rem)] max-w-lg max-h-[calc(100dvh-1.5rem)] overflow-x-hidden overflow-y-auto rounded-3xl glass shadow-2xl shadow-primary/20 animate-rise"
       >
         {/* ===== Brand header band ===== */}
         <div className="relative bg-brand-rich bg-brand-animated sheen px-6 pt-6 pb-7 text-white">
@@ -126,13 +130,13 @@ export const LandingPopup: FC = () => {
           <p className="text-sm text-muted-foreground leading-relaxed text-center">{t("popup.subtitle")}</p>
 
           {/* feature chips */}
-          <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="mt-4 grid min-w-0 grid-cols-3 gap-2">
             {features.map((f, i) => (
-              <div key={i} className="rounded-2xl bg-brand-soft ring-1 ring-primary/10 px-2 py-3 text-center">
+              <div key={i} className="min-w-0 rounded-2xl bg-brand-soft ring-1 ring-primary/10 px-1.5 sm:px-2 py-3 text-center">
                 <div className="w-9 h-9 mx-auto rounded-xl icon-tile bg-brand flex items-center justify-center mb-1.5">
                   <f.icon className="w-4.5 h-4.5" />
                 </div>
-                <div className="text-[11px] leading-tight font-medium text-foreground/80">{f.label}</div>
+                <div className="break-words text-[11px] leading-tight font-medium text-foreground/80">{f.label}</div>
               </div>
             ))}
           </div>
@@ -147,11 +151,11 @@ export const LandingPopup: FC = () => {
             </Button>
 
             {!isAuthenticated && (
-              <div className="grid grid-cols-2 gap-2.5">
-                <Button onClick={() => go("/register")} variant="outline" className="h-11 rounded-xl font-semibold border-primary/25 hover:bg-primary/5">
+              <div className="grid min-w-0 grid-cols-2 gap-2.5">
+                <Button onClick={() => go("/register")} variant="outline" className="min-w-0 h-11 rounded-xl font-semibold border-primary/25 hover:bg-primary/5">
                   {t("popup.cta.register")}
                 </Button>
-                <Button onClick={() => go("/login")} variant="ghost" className="h-11 rounded-xl font-semibold hover:bg-primary/5">
+                <Button onClick={() => go("/login")} variant="ghost" className="min-w-0 h-11 rounded-xl font-semibold hover:bg-primary/5">
                   {t("popup.cta.login")}
                 </Button>
               </div>

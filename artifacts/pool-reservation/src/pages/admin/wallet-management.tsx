@@ -9,8 +9,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { CheckCircle, XCircle, Clock, Wallet } from "lucide-react";
+import { CheckCircle, XCircle, Clock, Wallet, Download } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { downloadCsv, csvStamp } from "@/lib/export-csv";
 
 type TopupRequest = {
   id: number; userId: number; amount: number; method: string; slipImageUrl?: string;
@@ -30,6 +31,7 @@ export const AdminWalletManagement: FC = () => {
   const [selected, setSelected] = useState<TopupRequest | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [processing, setProcessing] = useState(false);
+  const [exportRange, setExportRange] = useState<"day" | "month" | "year" | "all">("month");
 
   const fetchRequests = async (status?: string) => {
     setLoading(true);
@@ -70,6 +72,31 @@ export const AdminWalletManagement: FC = () => {
   };
 
   const methodLabel: Record<string, string> = { bank_transfer: "โอนธนาคาร", qr_payment: "QR Payment", slip: "สลิป" };
+  const exportRows = requests.filter((r) => {
+    if (exportRange === "all") return true;
+    const d = new Date(r.createdAt);
+    const now = new Date();
+    if (exportRange === "day") return d.toLocaleDateString("en-CA") === now.toLocaleDateString("en-CA");
+    if (exportRange === "month") return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    return d.getFullYear() === now.getFullYear();
+  });
+  const exportWallet = () => {
+    downloadCsv(`wallet-topup-${exportRange}-${csvStamp()}.csv`, [
+      ["เลขที่", "สมาชิก", "Username", "จำนวนเงิน", "วิธีชำระ", "สถานะ", "วันที่ส่ง", "วันที่ตรวจ", "หมายเหตุ", "หมายเหตุตรวจสอบ"],
+      ...exportRows.map((r) => [
+        r.id,
+        `${r.user.firstName} ${r.user.lastName}`,
+        r.user.username,
+        r.amount,
+        methodLabel[r.method] || r.method,
+        r.status,
+        new Date(r.createdAt).toLocaleString("th-TH"),
+        r.reviewedAt ? new Date(r.reviewedAt).toLocaleString("th-TH") : "",
+        r.note || "",
+        r.reviewNote || "",
+      ]),
+    ]);
+  };
 
   return (
     <div className="space-y-6">
@@ -77,6 +104,19 @@ export const AdminWalletManagement: FC = () => {
         title="จัดการกระเป๋าเงิน / การเติมเงิน"
         icon={Wallet}
         gradient="from-emerald-400 to-green-600"
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={exportRange} onChange={(e) => setExportRange(e.target.value as any)} className="h-9 rounded-md border bg-background px-3 text-sm">
+              <option value="day">รายวัน</option>
+              <option value="month">รายเดือน</option>
+              <option value="year">รายปี</option>
+              <option value="all">ทั้งหมด</option>
+            </select>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={exportWallet} disabled={!exportRows.length}>
+              <Download className="h-4 w-4" /> Export
+            </Button>
+          </div>
+        }
       />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>

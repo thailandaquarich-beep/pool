@@ -8,6 +8,7 @@ import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
 import { getOrCreateWallet } from "./wallet.js";
 import { dataDirs } from "../lib/dataPaths.js";
 import { appendMemberLog } from "../lib/memberLog.js";
+import { writeEncryptedFile } from "../lib/cryptoVault.js";
 
 const router = Router();
 
@@ -21,7 +22,7 @@ async function saveSlipFile(dataUrl: unknown, topupId: number, userId: number): 
     const buf = Buffer.from(m[2], "base64");
     await fs.mkdir(dataDirs.slips, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    await fs.writeFile(path.join(dataDirs.slips, `topup-${topupId}-user-${userId}-${stamp}.${ext}`), buf);
+    await writeEncryptedFile(path.join(dataDirs.slips, `topup-${topupId}-user-${userId}-${stamp}.${ext}`), buf.toString("base64"));
   } catch {
     /* best-effort: never block a top-up because a file write failed */
   }

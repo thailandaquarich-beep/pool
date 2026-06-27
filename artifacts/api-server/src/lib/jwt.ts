@@ -1,6 +1,17 @@
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = process.env.JWT_SECRET || "pool-reservation-secret-key-change-in-production";
+const DEFAULT_DEV_JWT_SECRET = "pool-reservation-secret-key-change-in-production";
+const configuredJwtSecret = process.env.JWT_SECRET;
+
+if (!configuredJwtSecret && process.env.NODE_ENV === "production") {
+  throw new Error("JWT_SECRET is required in production");
+}
+
+if (!configuredJwtSecret) {
+  console.warn("[security] JWT_SECRET is not set. Using a development-only fallback secret.");
+}
+
+const JWT_SECRET = configuredJwtSecret || DEFAULT_DEV_JWT_SECRET;
 const JWT_EXPIRES_IN = "7d";
 const JWT_REMEMBER_EXPIRES_IN = "30d";
 

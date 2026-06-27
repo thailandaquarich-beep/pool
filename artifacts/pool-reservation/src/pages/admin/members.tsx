@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQueryClient, useMutation } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import {
   useListUsers,
   useCreateUser,
@@ -36,10 +36,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Search, Plus, Pencil, Trash2, KeyRound, ChevronLeft, ChevronRight, GraduationCap, Phone, Mail, Users, Ticket, CalendarClock } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, KeyRound, ChevronLeft, ChevronRight, GraduationCap, Phone, Mail, Users, Ticket, CalendarClock, PackagePlus, Download, History } from "lucide-react";
 import { MemberAvatar } from "@/components/member-avatar";
 import { ImageUpload } from "@/components/image-upload";
 import { cn } from "@/lib/utils";
+import { downloadCsv, csvStamp } from "@/lib/export-csv";
 
 type User = {
   id: number;
@@ -112,6 +113,55 @@ type EditForm = {
   profileImageUrl: string;
 };
 
+type AdminPackage = {
+  id: number;
+  name: string;
+  price: number;
+  durationDays: number;
+  maxBookingsPerMonth: number | null;
+  isActive: boolean;
+};
+
+type MemberPackageRow = {
+  id: number;
+  packageId: number;
+  pricePaid: number;
+  bookingsUsed: number;
+  status: "active" | "expired" | "cancelled";
+  startDate: string;
+  endDate: string;
+  createdAt: string;
+  isExpired: boolean;
+  package: AdminPackage;
+};
+
+type MemberPackageUsage = {
+  id: number;
+  memberPackageId: number;
+  source: string;
+  note?: string | null;
+  createdAt: string;
+  packageName: string;
+  reservation?: { id: number; date: string; startTime: string; endTime: string; status: string; numberOfPeople: number } | null;
+};
+
+type MemberPackageEvent = {
+  id: number;
+  memberPackageId?: number | null;
+  eventType: string;
+  note?: string | null;
+  before?: any;
+  after?: any;
+  createdAt: string;
+  admin?: { firstName: string; lastName: string; username: string } | null;
+};
+
+type MemberCourseHistory = {
+  packages: MemberPackageRow[];
+  usages: MemberPackageUsage[];
+  events: MemberPackageEvent[];
+};
+
 export function AdminMembers() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -120,13 +170,17 @@ export function AdminMembers() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
   const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [reportRange, setReportRange] = useState<"day" | "week" | "month" | "all">("month");
+  const [exporting, setExporting] = useState(false);
 
   // Dialogs
   const [addOpen, setAddOpen] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
   const [deleteUser, setDeleteUser] = useState<User | null>(null);
   const [resetUser, setResetUser] = useState<User | null>(null);
+  const [packageUser, setPackageUser] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState("");
+  const [assignForm, setAssignForm] = useState({ packageId: "", pricePaid: "", startDate: "", endDate: "", note: "" });
 
   const token = localStorage.getItem("pool_token");
   const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -150,6 +204,32 @@ export function AdminMembers() {
   const users: User[] = (data as any)?.users ?? [];
   const totalPages: number = (data as any)?.totalPages ?? 1;
   const total: number = (data as any)?.total ?? 0;
+  const { data: packages = [] } = useQuery<AdminPackage[]>({
+    queryKey: ["packages", "all"],
+    queryFn: async () => {
+      const res = await fetch(`${baseUrl}/api/packages/all`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+  const { data: memberPackages = [], isLoading: memberPackagesLoading } = useQuery<MemberPackageRow[]>({
+    queryKey: ["admin", "member-packages", packageUser?.id],
+    enabled: !!packageUser,
+    queryFn: async () => {
+      const res = await fetch(`${baseUrl}/api/packages/admin/member/${packageUser!.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+  const { data: courseHistory, isLoading: courseHistoryLoading } = useQuery<MemberCourseHistory>({
+    queryKey: ["admin", "member-course-history", packageUser?.id],
+    enabled: !!packageUser,
+    queryFn: async () => {
+      const res = await fetch(`${baseUrl}/api/packages/admin/member/${packageUser!.id}/history`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { packages: [], usages: [], events: [] };
+      return res.json();
+    },
+  });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: getListUsersQueryKey() });
 
@@ -179,6 +259,53 @@ export function AdminMembers() {
       onSuccess: () => { toast({ title: "รีเซ็ตรหัสผ่านสำเร็จ" }); setResetUser(null); setNewPassword(""); },
       onError: (e: any) => toast({ title: "เกิดข้อผิดพลาด", description: e?.message, variant: "destructive" }),
     },
+  });
+
+  const assignPackageMutation = useMutation({
+    mutationFn: async () => {
+      if (!packageUser) throw new Error("no member");
+      const res = await fetch(`${baseUrl}/api/packages/admin/assign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          userId: packageUser.id,
+          packageId: Number(assignForm.packageId),
+          pricePaid: assignForm.pricePaid === "" ? undefined : Number(assignForm.pricePaid),
+          startDate: assignForm.startDate || undefined,
+          endDate: assignForm.endDate || undefined,
+          note: assignForm.note,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "เติมคอร์สไม่สำเร็จ");
+      return data;
+    },
+    onSuccess: () => {
+      toast({ title: "เติมคอร์ส/แพ็กเกจให้สมาชิกแล้ว" });
+      setAssignForm({ packageId: "", pricePaid: "", startDate: "", endDate: "", note: "" });
+      invalidate();
+      qc.invalidateQueries({ queryKey: ["admin", "member-packages", packageUser?.id] });
+    },
+    onError: (e: any) => toast({ title: "เติมคอร์สไม่สำเร็จ", description: e?.message, variant: "destructive" }),
+  });
+
+  const updateMemberPackageMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      const res = await fetch(`${baseUrl}/api/packages/admin/member-packages/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(data),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "แก้ไขคอร์สไม่สำเร็จ");
+      return json;
+    },
+    onSuccess: () => {
+      toast({ title: "อัปเดตคอร์สสมาชิกแล้ว" });
+      invalidate();
+      qc.invalidateQueries({ queryKey: ["admin", "member-packages", packageUser?.id] });
+    },
+    onError: (e: any) => toast({ title: "แก้ไขคอร์สไม่สำเร็จ", description: e?.message, variant: "destructive" }),
   });
 
   // Promote a member to instructor in one idempotent backend call (sets role=instructor
@@ -225,7 +352,50 @@ export function AdminMembers() {
     searchTimer = setTimeout(() => { setDebouncedSearch(val); setPage(1); }, 400);
   }
 
+  async function exportMemberReport() {
+    setExporting(true);
+    try {
+      const qs = new URLSearchParams({ range: reportRange });
+      if (debouncedSearch) qs.set("search", debouncedSearch);
+      if (roleFilter !== "all") qs.set("role", roleFilter);
+      const res = await fetch(`${baseUrl}/api/users/report?${qs.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "download failed");
+      downloadCsv(`members-${reportRange}-${csvStamp()}.csv`, [
+        ["รหัสสมาชิก", "ชื่อ", "นามสกุล", "ชื่อผู้ใช้", "อีเมล", "เบอร์โทร", "ระดับ", "สมัครเมื่อ", "แพ็กเกจทั้งหมด", "แพ็กเกจใช้งานได้", "คอร์สหมดอายุ", "คอร์สล่าสุด", "สถานะคอร์สล่าสุด", "วันหมดอายุล่าสุด", "ใช้บริการทั้งหมด", "ใช้บริการล่าสุด"],
+        ...(data.users ?? []).map((u: any) => [
+          u.memberCode,
+          u.firstName,
+          u.lastName,
+          u.username,
+          u.email,
+          u.phone,
+          roleConfig[u.role]?.label ?? u.role,
+          u.createdAt ? new Date(u.createdAt).toLocaleString("th-TH") : "",
+          u.totalPackages,
+          u.activePackages,
+          u.expiredPackages,
+          u.latestPackageName ?? "",
+          u.latestPackageStatus ?? "",
+          u.latestPackageEndDate ? new Date(u.latestPackageEndDate).toLocaleDateString("th-TH") : "",
+          u.totalUses,
+          u.lastUse ? new Date(u.lastUse).toLocaleString("th-TH") : "",
+        ]),
+      ]);
+    } catch (e: any) {
+      toast({ title: "ดาวน์โหลดรายงานไม่สำเร็จ", description: e?.message, variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const shownUsers = roleFilter === "all" ? users : users.filter((u) => u.role === roleFilter);
+  const historyPackages = courseHistory?.packages ?? memberPackages;
+  const historyUsages = courseHistory?.usages ?? [];
+  const historyEvents = courseHistory?.events ?? [];
+  const expiredPackages = historyPackages.filter((mp) => mp.isExpired || mp.status === "expired");
+  const assignedEvents = historyEvents.filter((e) => e.eventType === "assigned");
+  const updatedEvents = historyEvents.filter((e) => e.eventType === "updated");
   const roleTabs = [
     { key: "all", label: "ทั้งหมด" },
     { key: "member", label: "สมาชิก" },
@@ -247,9 +417,25 @@ export function AdminMembers() {
             <p className="text-sm text-muted-foreground mt-0.5">ทั้งหมด <span className="font-semibold text-foreground">{total}</span> คน</p>
           </div>
         </div>
-        <Button onClick={() => setAddOpen(true)} className="gap-2 rounded-full px-5 shadow-sm" data-testid="add-member-btn">
-          <Plus className="w-4 h-4" /> เพิ่มสมาชิก
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className="h-10 rounded-full border border-input bg-background px-3 text-sm"
+            value={reportRange}
+            onChange={(e) => setReportRange(e.target.value as any)}
+            data-testid="member-report-range"
+          >
+            <option value="day">รายวัน</option>
+            <option value="week">รายสัปดาห์</option>
+            <option value="month">รายเดือน</option>
+            <option value="all">ทั้งหมด</option>
+          </select>
+          <Button variant="outline" onClick={exportMemberReport} disabled={exporting} className="gap-2 rounded-full px-4 shadow-sm" data-testid="member-export-btn">
+            <Download className="w-4 h-4" /> {exporting ? "กำลังดาวน์โหลด..." : "ดาวน์โหลดรายงาน"}
+          </Button>
+          <Button onClick={() => setAddOpen(true)} className="gap-2 rounded-full px-5 shadow-sm" data-testid="add-member-btn">
+            <Plus className="w-4 h-4" /> เพิ่มสมาชิก
+          </Button>
+        </div>
       </div>
 
       {/* Toolbar: search + role tabs */}
@@ -364,6 +550,9 @@ export function AdminMembers() {
                         </Button>
                         <Button size="icon" variant="ghost" className="h-8 w-8 rounded-lg hover:bg-primary/10 hover:text-primary" onClick={() => { setResetUser(user); setNewPassword(""); }} title="รีเซ็ตรหัสผ่าน" data-testid={`reset-btn-${user.id}`}>
                           <KeyRound className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 rounded-lg text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30" onClick={() => setPackageUser(user)} title="ดู/เติมคอร์สสมาชิก" data-testid={`packages-btn-${user.id}`}>
+                          <PackagePlus className="w-3.5 h-3.5" />
                         </Button>
                         {user.role !== "instructor" && (
                           <Button size="icon" variant="ghost" className="h-8 w-8 rounded-lg text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30" disabled={promoteMutation.isPending} onClick={() => promoteMutation.mutate({ user, specialty: "ครูฝึกว่ายน้ำ" })} title="ตั้งเป็นครูฝึก (ปรับระดับทันที)" data-testid={`promote-btn-${user.id}`}>
@@ -534,6 +723,145 @@ export function AdminMembers() {
               {updateMutation.isPending ? "กำลังบันทึก..." : "บันทึก"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Member Package Dialog */}
+      <Dialog open={!!packageUser} onOpenChange={open => !open && setPackageUser(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>จัดการคอร์ส / แพ็กเกจสมาชิก</DialogTitle>
+            {packageUser && (
+              <p className="text-sm text-muted-foreground">
+                {packageUser.firstName} {packageUser.lastName} <span className="font-mono text-primary">{packageUser.memberCode ?? ""}</span>
+              </p>
+            )}
+          </DialogHeader>
+
+          <div className="rounded-2xl border border-border bg-muted/30 p-4 space-y-3">
+            <div className="font-semibold flex items-center gap-2"><PackagePlus className="w-4 h-4 text-primary" /> เติมคอร์ส / แพ็กเกจพิเศษ</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1.5 md:col-span-2">
+                <Label>เลือกแพ็กเกจ</Label>
+                <Select value={assignForm.packageId} onValueChange={(v) => {
+                  const p = packages.find((x) => String(x.id) === v);
+                  setAssignForm((f) => ({ ...f, packageId: v, pricePaid: p ? String(p.price) : f.pricePaid }));
+                }}>
+                  <SelectTrigger><SelectValue placeholder="เลือกแพ็กเกจที่จะเติมให้ลูกค้า" /></SelectTrigger>
+                  <SelectContent>
+                    {packages.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.name} • ฿{Number(p.price).toLocaleString("th-TH")} • {p.durationDays} วัน{!p.isActive ? " (ปิดขาย)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>ราคาที่บันทึกยอดขาย</Label>
+                <Input type="number" min={0} value={assignForm.pricePaid} onChange={(e) => setAssignForm(f => ({ ...f, pricePaid: e.target.value }))} placeholder="เว้นว่าง = ราคาแพ็กเกจ" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>หมายเหตุ</Label>
+                <Input value={assignForm.note} onChange={(e) => setAssignForm(f => ({ ...f, note: e.target.value }))} placeholder="เช่น คอร์สค้างเก่า / แพ็กเกจพิเศษ" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>วันเริ่ม</Label>
+                <Input type="date" value={assignForm.startDate} onChange={(e) => setAssignForm(f => ({ ...f, startDate: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>วันหมดอายุ</Label>
+                <Input type="date" value={assignForm.endDate} onChange={(e) => setAssignForm(f => ({ ...f, endDate: e.target.value }))} />
+              </div>
+            </div>
+            <Button className="w-full md:w-auto gap-1.5" disabled={!assignForm.packageId || assignPackageMutation.isPending} onClick={() => assignPackageMutation.mutate()}>
+              <PackagePlus className="w-4 h-4" /> {assignPackageMutation.isPending ? "กำลังเติม..." : "เติมคอร์สให้สมาชิก"}
+            </Button>
+          </div>
+
+          <div className="space-y-3">
+            <div className="font-semibold flex items-center gap-2"><Ticket className="w-4 h-4 text-primary" /> ประวัติคอร์สทั้งหมด</div>
+            {memberPackagesLoading || courseHistoryLoading ? (
+              <div className="text-sm text-muted-foreground p-6 text-center">กำลังโหลด...</div>
+            ) : !historyPackages.length ? (
+              <div className="text-sm text-muted-foreground p-6 text-center border border-dashed rounded-2xl">ยังไม่มีประวัติคอร์ส</div>
+            ) : (
+              historyPackages.map((mp) => (
+                <div key={mp.id} className="rounded-2xl border border-border p-4 flex flex-col md:flex-row md:items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold truncate">{mp.package.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      ใช้ไป {mp.bookingsUsed}/{mp.package.maxBookingsPerMonth ?? "ไม่จำกัด"} • หมดอายุ {new Date(mp.endDate).toLocaleDateString("th-TH")} • ฿{Number(mp.pricePaid).toLocaleString("th-TH")}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">เติมเมื่อ {new Date(mp.createdAt).toLocaleString("th-TH")}</div>
+                  </div>
+                  <Select value={mp.status} onValueChange={(status) => updateMemberPackageMutation.mutate({ id: mp.id, data: { status } })}>
+                    <SelectTrigger className="w-full md:w-36"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">ใช้งานได้</SelectItem>
+                      <SelectItem value="expired">หมดอายุ</SelectItem>
+                      <SelectItem value="cancelled">ซ่อน/ยกเลิก</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-2xl border border-border p-4 space-y-3">
+              <div className="font-semibold flex items-center gap-2"><PackagePlus className="w-4 h-4 text-primary" /> ประวัติการเติมคอร์ส</div>
+              {assignedEvents.length ? assignedEvents.map((e) => (
+                <div key={e.id} className="rounded-xl bg-secondary/40 p-3 text-sm">
+                  <div className="font-medium">{e.after?.packageName ?? "เติมคอร์ส"}</div>
+                  <div className="text-xs text-muted-foreground">{new Date(e.createdAt).toLocaleString("th-TH")} • โดย {e.admin ? `${e.admin.firstName} ${e.admin.lastName}` : "ระบบ"}</div>
+                  {e.note && <div className="text-xs text-muted-foreground mt-1">{e.note}</div>}
+                </div>
+              )) : historyPackages.map((mp) => (
+                <div key={mp.id} className="rounded-xl bg-secondary/40 p-3 text-sm">
+                  <div className="font-medium">{mp.package.name}</div>
+                  <div className="text-xs text-muted-foreground">เติมเมื่อ {new Date(mp.createdAt).toLocaleString("th-TH")} • ฿{Number(mp.pricePaid).toLocaleString("th-TH")}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-2xl border border-border p-4 space-y-3">
+              <div className="font-semibold flex items-center gap-2"><CalendarClock className="w-4 h-4 text-primary" /> ประวัติคอร์สหมดอายุ</div>
+              {expiredPackages.length ? expiredPackages.map((mp) => (
+                <div key={mp.id} className="rounded-xl bg-secondary/40 p-3 text-sm">
+                  <div className="font-medium">{mp.package.name}</div>
+                  <div className="text-xs text-muted-foreground">หมดอายุ {new Date(mp.endDate).toLocaleDateString("th-TH")} • สถานะ {mp.status}</div>
+                </div>
+              )) : <div className="text-sm text-muted-foreground">ยังไม่มีคอร์สหมดอายุ</div>}
+            </div>
+
+            <div className="rounded-2xl border border-border p-4 space-y-3">
+              <div className="font-semibold flex items-center gap-2"><History className="w-4 h-4 text-primary" /> ประวัติการใช้บริการ</div>
+              {historyUsages.length ? historyUsages.map((u) => (
+                <div key={u.id} className="rounded-xl bg-secondary/40 p-3 text-sm">
+                  <div className="font-medium">{u.source === "checkin" ? "เช็คอินหน้างาน" : "ใช้จากการจอง"} • {u.packageName}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {new Date(u.createdAt).toLocaleString("th-TH")}
+                    {u.reservation ? ` • ${u.reservation.date} ${u.reservation.startTime}-${u.reservation.endTime}` : ""}
+                  </div>
+                  {u.note && <div className="text-xs text-muted-foreground mt-1">{u.note}</div>}
+                </div>
+              )) : <div className="text-sm text-muted-foreground">ยังไม่มีประวัติการใช้บริการ</div>}
+            </div>
+
+            <div className="rounded-2xl border border-border p-4 space-y-3">
+              <div className="font-semibold flex items-center gap-2"><Pencil className="w-4 h-4 text-primary" /> ประวัติการแก้ไขคอร์ส</div>
+              {updatedEvents.length ? updatedEvents.map((e) => (
+                <div key={e.id} className="rounded-xl bg-secondary/40 p-3 text-sm">
+                  <div className="font-medium">{e.note || "แก้ไขคอร์ส"}</div>
+                  <div className="text-xs text-muted-foreground">{new Date(e.createdAt).toLocaleString("th-TH")} • โดย {e.admin ? `${e.admin.firstName} ${e.admin.lastName}` : "ระบบ"}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    สถานะ {e.before?.status ?? "-"} → {e.after?.status ?? "-"} • ใช้ไป {e.before?.bookingsUsed ?? "-"} → {e.after?.bookingsUsed ?? "-"}
+                  </div>
+                </div>
+              )) : <div className="text-sm text-muted-foreground">ยังไม่มีประวัติการแก้ไขคอร์ส</div>}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

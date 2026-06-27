@@ -7,6 +7,7 @@ import { authenticate } from "../middlewares/auth.js";
 import type { Request, Response, NextFunction } from "express";
 import { dataDirs } from "../lib/dataPaths.js";
 import { appendMemberLog } from "../lib/memberLog.js";
+import { readEncryptedFile } from "../lib/cryptoVault.js";
 
 const router = Router();
 router.use(authenticate); // every route needs a signed-in user; admin routes add requireSuperAdmin
@@ -72,10 +73,10 @@ type Entry = {
 async function readAllEntries(): Promise<Entry[]> {
   try {
     await fs.mkdir(dataDirs.chatLogs, { recursive: true });
-    const files = (await fs.readdir(dataDirs.chatLogs)).filter((f) => f.startsWith("chat-") && f.endsWith(".jsonl"));
+    const files = (await fs.readdir(dataDirs.chatLogs)).filter((f) => f.startsWith("chat-") && f.endsWith(".jsonl.enc"));
     const out: Entry[] = [];
     for (const f of files) {
-      const text = await fs.readFile(path.join(dataDirs.chatLogs, f), "utf-8");
+      const text = await readEncryptedFile(path.join(dataDirs.chatLogs, f.replace(/\.enc$/, "")));
       for (const line of text.split(/\r?\n/)) {
         if (!line.trim()) continue;
         try { out.push(JSON.parse(line)); } catch { /* skip bad line */ }
@@ -144,7 +145,7 @@ router.get("/conversation/:userId", requireSuperAdmin, async (req, res) => {
   try {
     const file = path.join(dataDirs.chatLogs, "users", `${path.basename(req.params.userId)}.jsonl`);
     let text = "";
-    try { text = await fs.readFile(file, "utf-8"); } catch { return res.json([]); }
+    try { text = await readEncryptedFile(file); } catch { return res.json([]); }
     const rows = text.split(/\r?\n/).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
     return res.json(rows);
   } catch {

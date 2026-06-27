@@ -5,8 +5,10 @@ import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Ticket, QrCode, CalendarClock, Sparkles, ShieldCheck, BadgePercent, Check, Crown } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Ticket, QrCode, CalendarClock, Sparkles, ShieldCheck, BadgePercent, Check, Crown, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { downloadCsv, csvStamp } from "@/lib/export-csv";
 
 type UsagePackage = {
   memberPackageId: number;
@@ -25,6 +27,21 @@ type Usage = {
   bestDiscount: number;
   benefits: string[];
   packages: UsagePackage[];
+};
+type MyPackage = {
+  id: number;
+  pricePaid: number;
+  bookingsUsed: number;
+  status: string;
+  startDate: string;
+  endDate: string;
+  createdAt: string;
+  isExpired: boolean;
+  package: {
+    name: string;
+    maxBookingsPerMonth: number | null;
+    price: number;
+  };
 };
 
 export const MembershipCard: FC = () => {
@@ -50,12 +67,40 @@ export const MembershipCard: FC = () => {
       return res.json();
     },
   });
+  const { data: myPackages = [] } = useQuery<MyPackage[]>({
+    queryKey: ["packages", "my"],
+    queryFn: async () => {
+      const res = await fetch(`${baseUrl}/api/packages/my`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
 
   const remaining = usage?.totalRemaining ?? null;
   const initials = user ? `${user.firstName?.[0] ?? ""}${user.lastName?.[0] ?? ""}`.toUpperCase() : "U";
+  const exportPackages = () => {
+    downloadCsv(`my-course-history-${csvStamp()}.csv`, [
+      ["คอร์ส", "วันที่เติม", "วันเริ่ม", "วันหมดอายุ", "ใช้ไป", "โควตา", "ยอดชำระ", "สถานะ"],
+      ...myPackages.map((p) => [
+        p.package.name,
+        new Date(p.createdAt).toLocaleString("th-TH"),
+        new Date(p.startDate).toLocaleDateString("th-TH"),
+        new Date(p.endDate).toLocaleDateString("th-TH"),
+        p.bookingsUsed,
+        p.package.maxBookingsPerMonth ?? "ไม่จำกัด",
+        p.pricePaid,
+        p.status,
+      ]),
+    ]);
+  };
 
   return (
-    <div className="min-h-screen bg-background pb-16">
+    <Dialog open onOpenChange={(open) => !open && setLocation("/dashboard")}>
+      <DialogContent className="w-[calc(100vw-1rem)] max-w-md md:max-w-2xl max-h-[calc(100dvh-1rem)] overflow-y-auto overflow-x-hidden p-0 gap-0 rounded-2xl md:rounded-3xl">
+        <DialogHeader className="sr-only">
+          <DialogTitle>บัตรสมาชิก</DialogTitle>
+        </DialogHeader>
+    <div className="bg-background pb-6">
       <div className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-cyan-50/50 to-background dark:from-primary/20 dark:via-cyan-900/20 dark:to-background py-10 px-4">
         <div className="max-w-md mx-auto text-center space-y-1 relative z-10">
           <h1 className="text-3xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-primary to-cyan-600">
@@ -170,7 +215,40 @@ export const MembershipCard: FC = () => {
             </CardContent>
           </Card>
         )}
+
+        {myPackages.length > 0 && (
+          <Card className="rounded-2xl">
+            <CardContent className="p-5 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="font-bold flex items-center gap-2"><CalendarClock className="w-4 h-4 text-primary" /> ประวัติคอร์สทั้งหมด</h2>
+                <Button variant="outline" size="sm" className="gap-1.5 rounded-full" onClick={exportPackages}>
+                  <Download className="w-3.5 h-3.5" /> ดาวน์โหลด
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {myPackages.map((p) => (
+                  <div key={p.id} className="rounded-xl bg-secondary/40 p-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-sm truncate">{p.package.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        เติม {new Date(p.createdAt).toLocaleDateString("th-TH")} • หมดอายุ {new Date(p.endDate).toLocaleDateString("th-TH")}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className={cn("text-xs font-semibold", p.status === "active" && !p.isExpired ? "text-emerald-600" : "text-muted-foreground")}>
+                        {p.status === "active" && !p.isExpired ? "ใช้งานได้" : "หมดอายุ"}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">ใช้ไป {p.bookingsUsed}/{p.package.maxBookingsPerMonth ?? "∞"}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
+      </DialogContent>
+    </Dialog>
   );
 };

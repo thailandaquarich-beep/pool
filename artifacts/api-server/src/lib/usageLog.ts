@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { dataDirs } from "./dataPaths.js";
+import { appendEncryptedLine } from "./cryptoVault.js";
 
 export type UsageLogEntry = {
   userId: number;
@@ -24,7 +25,7 @@ export async function logUsage(entry: UsageLogEntry): Promise<void> {
     const atLocal = now.toLocaleString("th-TH", { timeZone: BKK, hour12: false });
     const line = JSON.stringify({ at: now.toISOString(), atLocal, ...entry }) + "\n";
     await fs.mkdir(dataDirs.usageLogs, { recursive: true });
-    await fs.appendFile(path.join(dataDirs.usageLogs, `usage-${dayKey}.jsonl`), line, "utf-8");
+    await appendEncryptedLine(path.join(dataDirs.usageLogs, `usage-${dayKey}.jsonl`), line);
   } catch {
     /* swallow — logging is best-effort */
   }

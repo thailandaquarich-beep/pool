@@ -1,6 +1,6 @@
 import { FC, useState, useEffect } from "react";
 import { useTranslation } from "@/i18n";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -12,7 +12,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-type Package = { id: number; name: string; nameEn: string; description?: string; price: number; durationDays: number; benefits?: string; bookingDiscount: number; maxBookingsPerMonth?: number; isActive: boolean };
+type Package = { id: number; name: string; nameEn: string; description?: string; imageUrl?: string | null; price: number; durationDays: number; benefits?: string; bookingDiscount: number; maxBookingsPerMonth?: number; isActive: boolean };
 type MemberPackage = { id: number; packageId: number; pricePaid: number; status: string; startDate: string; endDate: string; isExpired: boolean; package: Package };
 
 export const Packages: FC = () => {
@@ -96,6 +96,15 @@ export const Packages: FC = () => {
               {/* corner wash for depth */}
               <div className="pointer-events-none absolute -right-10 -top-10 w-32 h-32 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 opacity-10 blur-2xl" />
               {owned && <div className="absolute top-0 right-0 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs px-3 py-1 rounded-bl-lg shadow-sm z-10">มีอยู่แล้ว</div>}
+              {pkg.imageUrl ? (
+                <div className="aspect-[16/9] bg-muted">
+                  <img src={pkg.imageUrl} alt={pkg.name} className="h-full w-full object-cover" />
+                </div>
+              ) : (
+                <div className="aspect-[16/9] bg-gradient-to-br from-amber-100 via-cyan-50 to-white dark:from-amber-950/30 dark:via-cyan-950/20 dark:to-background flex items-center justify-center">
+                  <Crown className="w-12 h-12 text-amber-500/70" />
+                </div>
+              )}
               <CardContent className="p-6 space-y-4 relative">
                 <div>
                   <h3 className="text-lg font-display font-bold">{pkg.name}</h3>

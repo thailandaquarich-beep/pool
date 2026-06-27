@@ -3,13 +3,15 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { MemberAvatar } from "@/components/member-avatar";
-import { CalendarOff, Check, X, Clock } from "lucide-react";
+import { CalendarOff, Check, X, Clock, Search, Download } from "lucide-react";
 import { typeLabel, statusMeta } from "@/pages/leave";
+import { downloadCsv, csvStamp } from "@/lib/export-csv";
 
 const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -26,6 +28,7 @@ export const AdminLeave: FC = () => {
   const token = localStorage.getItem("pool_token");
   const auth = { Authorization: `Bearer ${token}` };
   const [tab, setTab] = useState("pending");
+  const [search, setSearch] = useState("");
   const [review, setReview] = useState<{ row: Leave; action: "approved" | "rejected" } | null>(null);
   const [note, setNote] = useState("");
 
@@ -55,6 +58,26 @@ export const AdminLeave: FC = () => {
     },
     onError: (e: any) => toast({ title: "เกิดข้อผิดพลาด", description: e.message, variant: "destructive" }),
   });
+  const filteredRows = (rows || []).filter((r) =>
+    `${r.user.firstName} ${r.user.lastName} ${r.user.role}`.toLowerCase().includes(search.trim().toLowerCase()),
+  );
+  const exportLeave = () => {
+    downloadCsv(`leave-report-${tab}-${csvStamp()}.csv`, [
+      ["ชื่อพนักงาน", "บทบาท", "ประเภท", "วันที่เริ่ม", "วันที่สิ้นสุด", "จำนวนวัน", "สถานะ", "เหตุผล", "หมายเหตุ", "วันที่ส่งคำขอ"],
+      ...filteredRows.map((r) => [
+        `${r.user.firstName} ${r.user.lastName}`,
+        r.user.role,
+        typeLabel[r.type] || r.type,
+        r.startDate,
+        r.endDate,
+        r.days,
+        statusMeta[r.status]?.label || r.status,
+        r.reason || "",
+        r.reviewNote || "",
+        new Date(r.createdAt).toLocaleString("th-TH"),
+      ]),
+    ]);
+  };
 
   return (
     <div className="space-y-4 max-w-3xl mx-auto">
@@ -75,13 +98,25 @@ export const AdminLeave: FC = () => {
         </TabsList>
       </Tabs>
 
+      <Card>
+        <CardContent className="flex flex-wrap items-center gap-2 p-3">
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่อพนักงาน..." className="pl-9" />
+          </div>
+          <Button variant="outline" className="gap-1.5" onClick={exportLeave} disabled={!filteredRows.length}>
+            <Download className="h-4 w-4" /> ดาวน์โหลดรายงาน
+          </Button>
+        </CardContent>
+      </Card>
+
       <div className="space-y-2">
-        {!rows?.length ? (
+        {!filteredRows.length ? (
           <div className="text-center py-16 text-muted-foreground">
             <CalendarOff className="w-12 h-12 mx-auto mb-3 opacity-30" />
             <p>ไม่มีคำขอลาในหมวดนี้</p>
           </div>
-        ) : rows.map((r) => (
+        ) : filteredRows.map((r) => (
           <Card key={r.id}>
             <CardContent className="p-4 flex items-start gap-3">
               <MemberAvatar firstName={r.user.firstName} lastName={r.user.lastName} src={r.user.profileImageUrl} className="w-10 h-10 text-sm" />

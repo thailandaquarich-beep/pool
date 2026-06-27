@@ -1,0 +1,356 @@
+รายงานสรุปการปรับปรุงระบบ Aquarich / Pool Reservation
+วันที่จัดทำ: 26 มิถุนายน 2026
+ไฟล์นี้จัดทำเพื่อใช้ตรวจสอบว่า ระบบส่วนใดทำไปแล้ว และส่วนใดยังควรพัฒนาต่อ
+
+============================================================
+1) ภาพรวมงานที่ทำแล้ว
+============================================================
+
+[ทำแล้ว] ระบบความปลอดภัย API
+- เพิ่ม Security Headers
+  - X-Content-Type-Options: nosniff
+  - X-Frame-Options: DENY
+  - Referrer-Policy
+  - Permissions-Policy
+  - Content-Security-Policy
+- ปิด X-Powered-By เพื่อลดการเปิดเผยข้อมูล server
+- เพิ่ม CORS allowlist จำกัด origin ที่เรียก API ได้
+- เพิ่ม Rate Limit ทั่ว API
+- เพิ่ม Rate Limit เฉพาะ request แบบเขียนข้อมูล
+- เพิ่ม Guard ป้องกัน request แปลก เช่น ../, .env, wp-admin, phpmyadmin
+- ปิด cache สำหรับ route ที่มีข้อมูลสำคัญ เช่น auth, backup, users, wallet, reservations, packages
+
+[ทำแล้ว] ระบบ Login Security
+- จำกัดการ login ผิดซ้ำ
+- ถ้า login ผิดเกินจำนวนที่กำหนด จะได้ 429 rate_limited
+- หน่วงเวลาตอน login ผิดเพื่อลด brute force
+- ไม่เปิดเผย error รายละเอียดเกินจำเป็น
+- ป้องกัน malformed JSON ไม่ให้โชว์ stack trace / path เครื่อง server
+
+[ทำแล้ว] JWT / Production Guard
+- ถ้า production ไม่มี JWT_SECRET ระบบจะไม่ยอม start
+- ลดความเสี่ยงจากการใช้ secret default บน production
+
+[ทำแล้ว] ระบบ Audit Log สำหรับ Super Admin
+- เพิ่มตาราง audit_logs ใน PostgreSQL
+- บันทึกกิจกรรมสำคัญลงฐานข้อมูลจริง
+- บันทึกข้อมูล:
+  - ผู้ใช้งาน / username / role
+  - member code
+  - action ที่ทำ
+  - method และ path
+  - status code
+  - IP address
+  - user agent / อุปกรณ์
+  - เวลา
+  - metadata เพิ่มเติม
+- เพิ่ม API /api/audit-logs
+- จำกัดสิทธิ์เฉพาะ super_admin
+- admin ปกติไม่สามารถดู audit log ได้
+- เพิ่มหน้าเมนู Super admin > บันทึกความปลอดภัย
+- มี filter วันที่, action, method, status, search
+- มีปุ่มดาวน์โหลด CSV
+
+[ทำแล้ว] ระบบ Backup Permission
+- เปลี่ยนสิทธิ์ backup จาก admin เป็น super_admin เท่านั้น
+- ลดความเสี่ยงจาก admin ทั่วไปดาวน์โหลดข้อมูลสำคัญ
+
+[ทำแล้ว] ระบบเข้ารหัสไฟล์ข้อมูลบน Disk
+- เพิ่ม Crypto Vault
+- ใช้ AES-256-GCM
+- ไฟล์ที่ถูกเข้ารหัสมี authentication tag ถ้าถูกแก้ไขจะถอดรหัสไม่ผ่าน
+- เพิ่ม DATA_ENCRYPTION_KEY สำหรับถอดรหัสข้อมูล
+- ถ้า production ไม่มี DATA_ENCRYPTION_KEY ระบบจะไม่ยอม start
+
+[ทำแล้ว] เข้ารหัส Backup
+- backup เดิมแบบ .json ถูกแปลงเป็น .json.enc
+- latest-full-backup.json เปลี่ยนเป็น latest-full-backup.json.enc
+- latest-users-backup.json เปลี่ยนเป็น latest-users-backup.json.enc
+- user backups ทั้งหมดถูกเข้ารหัส
+- full backup ทั้งหมดถูกเข้ารหัส
+- download backup จะได้ไฟล์ encrypted เท่านั้น
+- restore ต้องให้ server ถอดรหัสด้วย key ก่อน
+
+[ทำแล้ว] เข้ารหัส Log และไฟล์ข้อมูลใน data
+- member logs ถูกเข้ารหัส
+- usage logs ถูกเข้ารหัส
+- sales logs ถูกเข้ารหัส
+- chat logs ถูกเข้ารหัส
+- payment slip files บน disk ถูกเข้ารหัส
+- ลบ plaintext เดิมออกจาก data แล้ว
+- ตรวจล่าสุด:
+  - ไฟล์ข้อมูล plaintext ใน data = 0
+  - ไฟล์ encrypted = 369
+  - เหลือเฉพาะ .last-daily 1 ไฟล์ เป็น marker วันที่ backup ไม่มีข้อมูลลูกค้า
+
+[ทำแล้ว] ระบบครูฝึก / ตารางสอน / จำนวนรับสอน
+- เพิ่มระบบจัดการตารางครูฝึกใน admin
+- admin แก้ไขเวลาสอนครูฝึกได้
+- ครูฝึกเปลี่ยน/จัดการเวลาสอนได้
+- เพิ่มจำนวนสมาชิกที่ครูรับสอนได้ต่อช่วงเวลา
+- ปรับจำนวนรับสอนได้ช่วง 0-99
+- ระบบสมาชิกเลือกครูฝึกก่อนจองได้
+- สมาชิกเห็นช่วงเวลาของครูฝึกที่เลือก
+- จำนวนจองแยกตามครู เช่น ครู A 3/5 ครู B 0/5 ในเวลาเดียวกัน
+
+[ทำแล้ว] ระบบจอง
+- หน้า admin การจองทั้งหมดเรียงตามวันที่
+- เพิ่มช่องค้นหาวันที่
+- เพิ่ม export/download CSV สำหรับการจอง
+- ลูกค้ายกเลิกเองไม่ได้เมื่อ booking ถูกยืนยันแล้ว
+- เฉพาะ admin สามารถยกเลิก booking ที่ยืนยันแล้ว
+
+[ทำแล้ว] ระบบสมาชิก / รายงานสมาชิก
+- เพิ่มระบบดาวน์โหลดรายงานสมาชิก รายวัน / สัปดาห์ / เดือน / ทั้งหมด
+- เพิ่มประวัติคอร์ส:
+  - ประวัติเติมคอร์ส
+  - ประวัติคอร์สหมดอายุ
+  - ประวัติการใช้บริการ
+  - ประวัติการแก้ไขคอร์ส
+- เพิ่ม event table สำหรับ member package events
+- ข้อมูลบันทึกลง database จริง
+
+[ทำแล้ว] ระบบพนักงาน
+- เพิ่มภารกิจประจำวัน
+- เพิ่มหน้าวางแผนงานใน admin
+- พนักงานรับภารกิจได้
+- พนักงานถ่ายรูปก่อนเริ่มและหลังทำเสร็จได้
+- มี timestamp ตอนถ่ายรูป
+- admin เห็นภารกิจและรูปที่พนักงานส่ง
+
+[ทำแล้ว] ระบบเช็คอิน / ค้นหาสมาชิก
+- มีระบบสแกนเช็คอิน
+- มีระบบ lookup สมาชิกในหน้า admin
+- มีข้อมูลใช้งานจริงบันทึกลง usage log และ database ที่เกี่ยวข้อง
+
+[ทำแล้ว] ระบบร้านค้า / Order
+- มีระบบคำสั่งซื้อ
+- มีรายงานยอดขายร้านค้า
+- มี export CSV ในหน้าคำสั่งซื้อ
+- มีการเก็บข้อมูล order และ slip
+- ไฟล์ slip บน disk ถูกเข้ารหัสแล้ว
+
+[ทำแล้ว] ระบบสาขา
+- มีระบบจัดการสาขา
+- มีภาพรวมทุกสาขาสำหรับ super_admin
+- มี branch scope แยกข้อมูล admin ตามสาขา
+
+[ทำแล้ว] ระบบน้องอควา AI / Chat
+- มี assistant widget
+- มีระบบ chat/AI chat
+- มีหน้า analytics แชท AI สำหรับ super_admin
+- chat logs บน disk ถูกเข้ารหัสแล้ว
+
+[ทำแล้ว] Mobile / Frontend เบื้องต้น
+- ปรับหลายหน้าของ admin/member ให้รองรับมือถือดีขึ้น
+- ปรับ font/ขนาดบางส่วนของสมาชิกให้ใกล้ admin
+- ตรวจ build frontend ผ่าน
+
+
+============================================================
+2) ผลการทดสอบที่ผ่านแล้ว
+============================================================
+
+[ผ่าน] API Typecheck
+- pnpm --filter @workspace/api-server run typecheck ผ่าน
+
+[ผ่าน] API Build
+- pnpm --filter @workspace/api-server run build ผ่าน
+
+[ผ่าน] Frontend Typecheck
+- pnpm --filter @workspace/pool-reservation run typecheck ผ่าน
+
+[ผ่าน] Frontend Build
+- pnpm --filter @workspace/pool-reservation run build ผ่าน
+- หมายเหตุ: มี warning sourcemap จาก Vite/UI components แต่ไม่กระทบ build
+
+[ผ่าน] Security Test
+- security headers ทำงาน
+- CORS allowlist ทำงาน
+- origin แปลกปลอมไม่ผ่าน
+- malformed JSON ไม่โชว์ stack trace
+- login ผิดเกิน limit ได้ 429
+- admin ปกติเข้า backup/audit log ไม่ได้
+- super_admin เข้าได้
+- suspicious request เช่น /api/%2e%2e/.env ถูกบล็อก
+
+[ผ่าน] Encryption Test
+- backup ใหม่ออกเป็น .enc
+- latest full backup เป็น .json.enc
+- usage logs อ่านผ่าน API ได้หลังเข้ารหัส
+- audit logs อ่านผ่าน API ได้หลังเข้ารหัส
+- run full backup หลังเข้ารหัสสำเร็จ
+- ตรวจ data แล้วไม่พบไฟล์ข้อมูล plaintext
+
+
+============================================================
+3) ส่วนที่ยังไม่ได้ทำ / ควรพัฒนาต่อ
+============================================================
+
+[ยังไม่ได้ทำ] Field-level Encryption ใน PostgreSQL
+รายละเอียด:
+- ตอนนี้ไฟล์ใน data ถูกเข้ารหัสแล้ว
+- แต่ข้อมูลใน PostgreSQL ยังต้องเป็น plaintext เพื่อให้ API ใช้งานได้
+- ถ้าจะปลอดภัยระดับสูง ควรเข้ารหัส field สำคัญ เช่น:
+  - เบอร์โทร
+  - อีเมล
+  - ที่อยู่
+  - slipImageUrl base64 ใน database
+  - profileImageUrl base64
+  - ข้อมูลส่วนตัวลูกค้า
+
+[ยังไม่ได้ทำ] 2FA สำหรับ Admin / Super Admin
+รายละเอียด:
+- ควรเพิ่ม OTP หรือ Authenticator App
+- โดยเฉพาะ super_admin และ admin
+- ลดความเสี่ยงถ้ารหัสผ่านหลุด
+
+[ยังไม่ได้ทำ] Session Management ขั้นสูง
+รายละเอียด:
+- logout ทุกอุปกรณ์
+- revoke token
+- ดูอุปกรณ์ที่ login อยู่
+- บังคับเปลี่ยนรหัสผ่านเมื่อพบความเสี่ยง
+
+[ยังไม่ได้ทำ] แจ้งเตือน Security Event
+รายละเอียด:
+- แจ้งเตือนเมื่อ login ผิดหลายครั้ง
+- แจ้งเตือนเมื่อมีการดาวน์โหลด backup
+- แจ้งเตือนเมื่อมีการ restore backup
+- แจ้งเตือนเมื่อมีการลบ/แก้ไขข้อมูลสำคัญ
+- ช่องทางแนะนำ: LINE OA, Email
+
+[ยังไม่ได้ทำ] Immutable Audit Log
+รายละเอียด:
+- ตอนนี้ audit log บันทึกลง database แล้ว
+- ขั้นต่อไปควรทำ log แบบแก้ไม่ได้หรือตรวจจับการแก้ไขได้
+- เช่น hash chain หรือ write-once export
+
+[ยังไม่ได้ทำ] Backup ขึ้น Cloud แบบเข้ารหัส
+รายละเอียด:
+- ตอนนี้ backup เข้ารหัสใน local data แล้ว
+- ควรเพิ่มส่งขึ้น cloud storage
+- ต้องเป็น encrypted backup เท่านั้น
+- ควรมี retention เช่น 7/30/90 วัน
+
+[ยังไม่ได้ทำ] Firewall / Production Hardening
+รายละเอียด:
+- ปิด PostgreSQL ไม่ให้เข้าจากภายนอก
+- เปิดให้ API server เท่านั้น
+- จำกัด IP สำหรับหน้า super_admin
+- ใช้ HTTPS จริง
+- ตั้ง reverse proxy เช่น Nginx/Caddy
+
+[ยังไม่ได้ทำ] Monitoring / Error Tracking
+รายละเอียด:
+- ระบบแจ้งเตือน server ล่ม
+- health check production
+- error tracking
+- log aggregation
+- auto restart
+
+[ยังไม่ได้ทำ] PWA / Mobile App Experience
+รายละเอียด:
+- ทำให้ติดตั้งบนมือถือได้
+- offline shell
+- push notification
+- ปรับ mobile menu ให้ลื่นขึ้น
+
+[ยังไม่ได้ทำ] ระบบแจ้งเตือนลูกค้า/ครู/พนักงานแบบครบ
+รายละเอียด:
+- LINE OA
+- SMS
+- Email templates
+- แจ้งเตือนคอร์สใกล้หมด
+- แจ้งเตือนครูเมื่อมีนักเรียนใหม่
+- แจ้งเตือนพนักงานเมื่อได้รับภารกิจ
+
+[ยังไม่ได้ทำ] ระบบวิเคราะห์ธุรกิจขั้นสูง
+รายละเอียด:
+- Dashboard ผู้บริหารแบบเต็ม
+- กำไร/ขาดทุน
+- Cashflow
+- ลูกค้าที่หายไปนาน
+- ยอดขายแยกสาขาแบบกราฟ
+- รายงานครูฝึกและพนักงานแบบละเอียด
+
+[ยังไม่ได้ทำ] ระบบครูฝึกขั้นสูง
+รายละเอียด:
+- รายงานชั่วโมงสอน
+- ค่าคอมมิชชั่นครูฝึก
+- สรุปนักเรียนต่อครู
+- rating/review ครูฝึก
+
+[ยังไม่ได้ทำ] ระบบร้านค้าขั้นสูง
+รายละเอียด:
+- คูปอง/ส่วนลด
+- tracking จัดส่ง
+- แจ้งเตือนสินค้าใกล้หมด
+- รายงานกำไรสินค้า
+
+[ยังไม่ได้ทำ] ระบบสมาชิกขั้นสูง
+รายละเอียด:
+- ระดับสมาชิก Silver / Gold / VIP
+- สะสมแต้ม
+- แนะนำแพ็กเกจเหมาะกับลูกค้า
+- Timeline สมาชิกหน้าเดียว
+- แจ้งเตือนคอร์สใกล้หมด
+
+[ยังไม่ได้ทำ] น้องอควา AI ขั้นสูง
+รายละเอียด:
+- ให้ AI เข้าใจข้อมูลจริงเชิงลึกขึ้น
+- แนะนำแพ็กเกจอัตโนมัติ
+- ตรวจจับคำร้องเรียน
+- สรุปปัญหาลูกค้าให้ admin
+- ส่งต่อเจ้าหน้าที่แบบสมบูรณ์
+- knowledge base เฉพาะธุรกิจ
+
+
+============================================================
+4) หมายเหตุด้านความปลอดภัย
+============================================================
+
+- ตอนนี้ไฟล์ใน data ถูกเข้ารหัสแล้ว และไม่มีไฟล์ข้อมูล plaintext เหลืออยู่
+- แต่ database ยังต้องป้องกันด้วย firewall, user permission, backup encryption และ field-level encryption เพิ่ม
+- ห้ามนำ DATA_ENCRYPTION_KEY ไปเก็บใน git
+- ถ้า DATA_ENCRYPTION_KEY หาย จะถอดรหัส backup/log/slip ที่เข้ารหัสไว้ไม่ได้
+- ควรเก็บ key ใน password manager หรือ secret manager
+- production ต้องตั้งค่า:
+  - JWT_SECRET
+  - DATA_ENCRYPTION_KEY
+  - DATABASE_URL
+  - CORS_ORIGINS
+
+
+============================================================
+5) สรุปสถานะ
+============================================================
+
+ทำแล้ว:
+- ความปลอดภัย API หลัก
+- Audit log สำหรับ Super admin
+- Backup permission เฉพาะ Super admin
+- เข้ารหัสไฟล์ backup/log/slip ใน data
+- ระบบสมาชิก report/course history
+- ระบบครูฝึก/ตารางสอน/จำนวนรับสอน
+- ระบบจองและ export
+- ระบบพนักงานภารกิจ
+- ระบบร้านค้า/order/export
+- ระบบสาขา
+- ระบบ AI chat analytics
+
+ยังควรทำต่อ:
+- Field-level encryption ใน PostgreSQL
+- 2FA
+- Session revoke/logout ทุกอุปกรณ์
+- Security alert ผ่าน LINE/Email
+- Cloud encrypted backup
+- Firewall/production hardening
+- Monitoring/error tracking
+- Dashboard ธุรกิจขั้นสูง
+- PWA/mobile experience
+- ระบบแจ้งเตือนครบวงจร
+
+============================================================
+จบรายงาน
+============================================================

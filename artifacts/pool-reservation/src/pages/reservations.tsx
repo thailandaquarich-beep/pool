@@ -20,9 +20,10 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { CalendarDays, Clock, Users, X, Loader2 } from "lucide-react";
+import { CalendarDays, Clock, Users, X, Loader2, Ticket, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/page-header";
+import { downloadCsv, csvStamp } from "@/lib/export-csv";
 
 const STATUS_VARIANT: Record<string, "default" | "destructive" | "secondary" | "outline"> = {
   confirmed: "default",
@@ -36,6 +37,7 @@ export const Reservations: FC = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [cancellingId, setCancellingId] = useState<number | null>(null);
+  const [reportRange, setReportRange] = useState<"day" | "week" | "month" | "all">("month");
 
   const queryParams = { page: 1, limit: 50 };
   const { data, isLoading } = useGetMyReservations(queryParams, {
@@ -43,6 +45,30 @@ export const Reservations: FC = () => {
   });
 
   const deleteReservation = useDeleteReservation();
+  const exportReservations = () => {
+    const now = new Date();
+    const start = new Date(now);
+    if (reportRange === "day") start.setHours(0, 0, 0, 0);
+    if (reportRange === "week") start.setDate(now.getDate() - 7);
+    if (reportRange === "month") start.setMonth(now.getMonth() - 1);
+    const rows = (data?.reservations ?? []).filter((res: any) => {
+      if (reportRange === "all") return true;
+      return new Date(res.date) >= start;
+    });
+    downloadCsv(`my-reservations-${reportRange}-${csvStamp()}.csv`, [
+      ["เลขที่", "วันที่", "เวลาเริ่ม", "เวลาจบ", "จำนวนคน", "คอร์ส", "สถานะ", "หมายเหตุ"],
+      ...rows.map((res: any) => [
+        res.id,
+        res.date,
+        res.startTime,
+        res.endTime,
+        res.numberOfPeople,
+        res.package?.name ?? "",
+        res.status,
+        res.notes ?? "",
+      ]),
+    ]);
+  };
 
   const handleCancel = (id: number) => {
     setCancellingId(id);
@@ -65,9 +91,22 @@ export const Reservations: FC = () => {
         icon={CalendarDays}
         gradient="from-cyan-400 to-blue-600"
         actions={
-          <span className="text-sm text-muted-foreground">
-            {data?.total ?? 0} {t("common.total")}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">{data?.total ?? 0} {t("common.total")}</span>
+            <select
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              value={reportRange}
+              onChange={(e) => setReportRange(e.target.value as any)}
+            >
+              <option value="day">รายวัน</option>
+              <option value="week">รายสัปดาห์</option>
+              <option value="month">รายเดือน</option>
+              <option value="all">ทั้งหมด</option>
+            </select>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={exportReservations} disabled={!data?.reservations?.length}>
+              <Download className="w-4 h-4" /> ดาวน์โหลด
+            </Button>
+          </div>
         }
       />
 
@@ -81,7 +120,8 @@ export const Reservations: FC = () => {
       ) : data?.reservations && data.reservations.length > 0 ? (
         <div className="space-y-3">
           {data.reservations.map((res) => {
-            const canCancel = res.status === "confirmed" || res.status === "pending";
+            const canCancel = res.status === "pending";
+            const packageInfo = (res as any).package;
             return (
               <Card
                 key={res.id}
@@ -115,6 +155,12 @@ export const Reservations: FC = () => {
                           <Users className="w-4 h-4 shrink-0" />
                           {res.numberOfPeople} {t("book.people")}
                         </span>
+                        {packageInfo && (
+                          <span className="flex items-center gap-1.5 text-muted-foreground">
+                            <Ticket className="w-4 h-4 shrink-0 text-primary" />
+                            คอร์ส: {packageInfo.name}
+                          </span>
+                        )}
                       </div>
 
                       {res.notes && (

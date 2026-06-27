@@ -52,9 +52,12 @@ export async function hasQuota(exec: Exec, userId: number): Promise<boolean> {
 export async function consumeUse(
   exec: Exec,
   userId: number,
-  opts: { source: "booking" | "checkin"; reservationId?: number | null; note?: string },
+  opts: { source: "booking" | "checkin"; reservationId?: number | null; note?: string; memberPackageId?: number | null },
 ) {
-  const usable = pickUsable(await getActiveUsages(exec, userId));
+  const usages = await getActiveUsages(exec, userId);
+  const usable = opts.memberPackageId
+    ? usages.find((u) => u.memberPackage.id === opts.memberPackageId && (u.remaining === null || u.remaining > 0)) ?? null
+    : pickUsable(usages);
   if (!usable) throw new NoQuotaError();
 
   await exec

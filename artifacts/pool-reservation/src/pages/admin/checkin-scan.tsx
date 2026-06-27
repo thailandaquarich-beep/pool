@@ -14,6 +14,16 @@ type LookupData = {
   hasQuota: boolean;
   totalRemaining: number | null;
   packageName: string | null;
+  packages?: {
+    memberPackageId: number;
+    packageId: number;
+    name: string;
+    quota: number | null;
+    used: number;
+    remaining: number | null;
+    startDate: string;
+    endDate: string;
+  }[];
 };
 type ResultData = {
   ok: boolean;
@@ -34,6 +44,7 @@ export function AdminCheckinScan() {
   const [scanning, setScanning] = useState(false);
   const [manual, setManual] = useState("");
   const [lookup, setLookup] = useState<LookupData | null>(null);
+  const [selectedMemberPackageId, setSelectedMemberPackageId] = useState("");
   const [result, setResult] = useState<ResultData | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -88,6 +99,8 @@ export function AdminCheckinScan() {
         toast({ title: "ไม่พบสมาชิก", description: data.error, variant: "destructive" });
       } else {
         setLookup({ ...data, code: c });
+        const firstUsable = (data.packages ?? []).find((p: any) => p.remaining === null || p.remaining > 0);
+        setSelectedMemberPackageId(firstUsable ? String(firstUsable.memberPackageId) : "");
       }
     } catch {
       toast({ title: "เกิดข้อผิดพลาด", variant: "destructive" });
@@ -103,7 +116,7 @@ export function AdminCheckinScan() {
       const res = await fetch(`${baseUrl}/api/checkin`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ token: lookup.code }),
+        body: JSON.stringify({ token: lookup.code, memberPackageId: selectedMemberPackageId ? Number(selectedMemberPackageId) : undefined }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -112,6 +125,7 @@ export function AdminCheckinScan() {
         setResult({ ok: true, message: data.message, user: data.user, remainingAfter: data.remainingAfter, packageName: data.packageName });
       }
       setLookup(null);
+      setSelectedMemberPackageId("");
     } catch {
       toast({ title: "เกิดข้อผิดพลาด", variant: "destructive" });
     } finally {
@@ -153,9 +167,15 @@ export function AdminCheckinScan() {
       {/* Manual */}
       <Card className="rounded-2xl">
         <CardContent className="p-4 space-y-2">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">หรือกรอกรหัสจาก QR</label>
+          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">ค้นหาด้วยรหัสสมาชิก / เบอร์โทร / QR</label>
           <div className="flex gap-2">
-            <Input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="วางรหัสเช็คอิน..." onKeyDown={(e) => e.key === "Enter" && doLookup(manual)} />
+            <Input
+              value={manual}
+              onChange={(e) => setManual(e.target.value)}
+              placeholder="เช่น ART00027 หรือ 0812345678"
+              inputMode="search"
+              onKeyDown={(e) => e.key === "Enter" && doLookup(manual)}
+            />
             <Button variant="outline" disabled={busy || !manual.trim()} onClick={() => doLookup(manual)} className="gap-1.5 shrink-0">
               <Search className="w-4 h-4" /> ค้นหา
             </Button>
@@ -180,7 +200,29 @@ export function AdminCheckinScan() {
                 คงเหลือ {lookup.totalRemaining === null ? "ไม่จำกัด" : `${lookup.totalRemaining} ครั้ง`}
               </span>
             </div>
-            <Button className="w-full gap-2 min-h-[48px]" disabled={busy || !lookup.hasQuota} onClick={confirmCheckin}>
+            {(lookup.packages ?? []).length > 0 && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">เลือกคอร์สที่จะตัด</label>
+                <select
+                  className="w-full h-11 rounded-xl border border-input bg-background px-3 text-sm"
+                  value={selectedMemberPackageId}
+                  onChange={(e) => setSelectedMemberPackageId(e.target.value)}
+                >
+                  {(lookup.packages ?? []).map((p) => {
+                    const disabled = p.remaining !== null && p.remaining <= 0;
+                    return (
+                      <option key={p.memberPackageId} value={p.memberPackageId} disabled={disabled}>
+                        {p.name} • คงเหลือ {p.remaining === null ? "ไม่จำกัด" : `${p.remaining} ครั้ง`} • หมดอายุ {new Date(p.endDate).toLocaleDateString("th-TH")}
+                      </option>
+                    );
+                  })}
+                </select>
+                <p className="text-[11px] text-muted-foreground">
+                  ระบบจะหัก 1 ครั้งจากคอร์สที่เลือกเท่านั้น
+                </p>
+              </div>
+            )}
+            <Button className="w-full gap-2 min-h-[48px]" disabled={busy || !lookup.hasQuota || !selectedMemberPackageId} onClick={confirmCheckin}>
               <UserCheck className="w-5 h-5" /> {lookup.hasQuota ? "ยืนยันเช็คอิน (หัก 1 ครั้ง)" : "ไม่มีสิทธิ์คงเหลือ"}
             </Button>
           </CardContent>

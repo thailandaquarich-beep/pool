@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { dataDirs } from "./dataPaths.js";
 import { memberCode } from "./memberCode.js";
+import { appendEncryptedLine, writeEncryptedFile } from "./cryptoVault.js";
 
 // Per-member data folders: data/members/<ART#####>/
 //   profile.json      — basic member info (refreshed on login / check-in)
@@ -33,7 +34,7 @@ export async function appendMemberLog(
       atLocal: now.toLocaleString("th-TH", { timeZone: BKK, hour12: false }),
       ...payload,
     }) + "\n";
-    await fs.appendFile(path.join(dir, `${kind}.jsonl`), line, "utf-8");
+    await appendEncryptedLine(path.join(dir, `${kind}.jsonl`), line);
   } catch {
     /* best-effort */
   }
@@ -73,7 +74,7 @@ export async function writeMemberProfile(u: {
       registeredAt: u.createdAt ? (u.createdAt instanceof Date ? u.createdAt.toISOString() : String(u.createdAt)) : null,
       updatedAt: new Date().toISOString(),
     };
-    await fs.writeFile(path.join(dir, "profile.json"), JSON.stringify(profile, null, 2), "utf-8");
+    await writeEncryptedFile(path.join(dir, "profile.json"), JSON.stringify(profile, null, 2));
   } catch {
     /* best-effort */
   }

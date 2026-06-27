@@ -10,10 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { GraduationCap, Plus, Phone, Mail, Pencil, Trash2, KeyRound } from "lucide-react";
+import { CalendarClock, GraduationCap, Plus, Phone, Mail, Pencil, Trash2, KeyRound } from "lucide-react";
 import { ImageUpload } from "@/components/image-upload";
 import { PageHeader } from "@/components/page-header";
 import { cn } from "@/lib/utils";
+import { AdminInstructorScheduleDialog } from "./instructor-schedule-dialog";
 
 type Instructor = {
   id: number;
@@ -63,6 +64,7 @@ export function AdminInstructors() {
   const [editTarget, setEditTarget] = useState<Instructor | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Instructor | null>(null);
   const [acctTarget, setAcctTarget] = useState<Instructor | null>(null);
+  const [scheduleTarget, setScheduleTarget] = useState<Instructor | null>(null);
   const [acct, setAcct] = useState({ username: "", password: "" });
   const [form, setForm] = useState<InstructorForm>(emptyForm());
 
@@ -169,7 +171,7 @@ export function AdminInstructors() {
         <Label>รูปครูฝึก</Label>
         <ImageUpload value={form.profileImageUrl} onChange={(v) => set("profileImageUrl", v ?? "")} shape="circle" maxMb={3} />
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label>ชื่อ *</Label>
           <Input value={form.firstName} onChange={e => set("firstName", e.target.value)} placeholder="ชื่อ" />
@@ -179,7 +181,7 @@ export function AdminInstructors() {
           <Input value={form.lastName} onChange={e => set("lastName", e.target.value)} placeholder="นามสกุล" />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label>เบอร์โทร</Label>
           <Input value={form.phone} onChange={e => set("phone", e.target.value)} placeholder="0812345678" />
@@ -189,7 +191,7 @@ export function AdminInstructors() {
           <Input type="email" value={form.email} onChange={e => set("email", e.target.value)} placeholder="email@example.com" />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label>ความเชี่ยวชาญ</Label>
           <Input value={form.specialty} onChange={e => set("specialty", e.target.value)} placeholder="เช่น ว่ายน้ำ" />
@@ -222,7 +224,7 @@ export function AdminInstructors() {
   );
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <PageHeader
         title="ครูฝึกและผู้ฝึกสอน"
         subtitle="จัดการทีมครูฝึกของ Aquarich"
@@ -234,6 +236,45 @@ export function AdminInstructors() {
           </Button>
         }
       />
+
+      <Card className="border-primary/30 bg-primary/5">
+        <CardContent className="grid gap-3 p-4 md:grid-cols-[1fr_auto] md:items-end">
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <CalendarClock className="h-4 w-4 text-primary" />
+              จัดตารางสอนครูฝึกโดยแอดมิน
+            </Label>
+            <p className="text-sm text-muted-foreground">เลือกครูฝึก แล้วเพิ่ม/แก้ไข/ลบเวลาสอนรายสัปดาห์หรือวันเฉพาะได้จากหลังบ้าน</p>
+            <Select
+              value={scheduleTarget ? String(scheduleTarget.id) : ""}
+              onValueChange={(value) => {
+                const inst = instructors?.find((i) => i.id === Number(value));
+                if (inst) setScheduleTarget(inst);
+              }}
+              disabled={!instructors?.length}
+            >
+              <SelectTrigger className="bg-background">
+                <SelectValue placeholder={isLoading ? "กำลังโหลดรายชื่อครูฝึก..." : "เลือกครูฝึกเพื่อจัดตารางสอน"} />
+              </SelectTrigger>
+              <SelectContent>
+                {instructors?.map((inst) => (
+                  <SelectItem key={inst.id} value={String(inst.id)}>
+                    {inst.firstName} {inst.lastName}{inst.specialty ? ` · ${inst.specialty}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            className="gap-2"
+            disabled={!scheduleTarget}
+            onClick={() => scheduleTarget && setScheduleTarget(scheduleTarget)}
+          >
+            <CalendarClock className="h-4 w-4" />
+            เปิดตารางสอน
+          </Button>
+        </CardContent>
+      </Card>
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -273,7 +314,10 @@ export function AdminInstructors() {
                       <Mail className="w-3.5 h-3.5 flex-shrink-0" />
                       <span className="truncate">{inst.email ?? "–"}</span>
                     </div>
-                    <div className="flex gap-2 pt-1">
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={() => setScheduleTarget(inst)}>
+                        <CalendarClock className="w-3.5 h-3.5" /> ตารางสอน
+                      </Button>
                       <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={() => openEdit(inst)}>
                         <Pencil className="w-3.5 h-3.5" /> แก้ไข
                       </Button>
@@ -291,6 +335,12 @@ export function AdminInstructors() {
           })}
         </div>
       )}
+
+      <AdminInstructorScheduleDialog
+        instructor={scheduleTarget}
+        open={!!scheduleTarget}
+        onOpenChange={(open) => !open && setScheduleTarget(null)}
+      />
 
       {/* Add Dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>

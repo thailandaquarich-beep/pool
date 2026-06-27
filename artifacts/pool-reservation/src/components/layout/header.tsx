@@ -30,7 +30,14 @@ import {
   Sparkles,
   Bot,
   LifeBuoy,
-  CalendarOff
+  CalendarOff,
+  Wallet,
+  Crown,
+  Palette,
+  Clock,
+  ClipboardList,
+  TrendingUp,
+  MessageCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand";
@@ -74,18 +81,82 @@ export const Header: FC = () => {
     { href: "/admin/ai-chat", label: "วิเคราะห์แชท AI", icon: Bot },
     { href: "/admin/announcements", label: t("nav.admin.announcements"), icon: Bell },
     { href: "/admin/help", label: "ศูนย์ช่วยเหลือ", icon: LifeBuoy },
+    { href: "/admin/work-plan", label: "วางแผนงาน", icon: ClipboardList },
     { href: "/admin/leave", label: "คำขอลาพนักงาน", icon: CalendarOff },
     { href: "/admin/settings", label: t("nav.admin.settings"), icon: Settings },
   ];
 
+  const adminGroups = [
+    {
+      title: "ภาพรวมระบบ",
+      links: [
+        { href: "/admin", label: t("nav.admin.dashboard"), icon: LayoutDashboard },
+        ...((user as any)?.role === "super_admin" ? [
+          { href: "/admin/overview", label: "ภาพรวมทุกสาขา", icon: TrendingUp },
+          { href: "/admin/branches", label: "จัดการสาขา", icon: Building2 },
+        ] : []),
+      ],
+    },
+    {
+      title: "การจองและการสอน",
+      links: [
+        { href: "/admin/reservations", label: t("nav.admin.reservations"), icon: CalendarDays },
+        { href: "/admin/facilities", label: t("nav.admin.facilities"), icon: Building2 },
+        { href: "/admin/instructors", label: t("nav.admin.instructors"), icon: GraduationCap },
+        { href: "/admin/checkin", label: "สแกนเช็คอิน", icon: ScanLine },
+      ],
+    },
+    {
+      title: "สมาชิกและแพ็กเกจ",
+      links: [
+        { href: "/admin/members", label: t("nav.admin.members"), icon: Users },
+        { href: "/admin/wallet", label: t("nav.admin.wallet"), icon: Wallet },
+        { href: "/admin/packages", label: t("nav.admin.packages"), icon: Crown },
+      ],
+    },
+    {
+      title: "ร้านค้าและคำสั่งซื้อ",
+      links: [
+        { href: "/admin/products", label: "ผลิตภัณฑ์", icon: ShoppingBag },
+        { href: "/admin/orders", label: "คำสั่งซื้อ", icon: Package },
+      ],
+    },
+    {
+      title: "สื่อสารและช่วยเหลือ",
+      links: [
+        { href: "/admin/announcements", label: t("nav.admin.announcements"), icon: Bell },
+        { href: "/admin/chat", label: t("nav.admin.chat"), icon: MessageCircle },
+        ...((user as any)?.role === "super_admin" ? [{ href: "/admin/ai-chat", label: "วิเคราะห์แชท AI", icon: Bot }] : []),
+        { href: "/admin/help", label: "ศูนย์ช่วยเหลือ", icon: LifeBuoy },
+      ],
+    },
+    {
+      title: "พนักงาน",
+      links: [
+        { href: "/admin/work-plan", label: "วางแผนงาน", icon: ClipboardList },
+        { href: "/admin/attendance", label: "ลงเวลา/กะพนักงาน", icon: Clock },
+        { href: "/admin/leave", label: "คำขอลาพนักงาน", icon: CalendarOff },
+      ],
+    },
+    {
+      title: "ตั้งค่าระบบ",
+      links: [
+        { href: "/admin/theme", label: "ธีมสีเว็บไซต์", icon: Palette },
+        { href: "/admin/settings", label: t("nav.admin.settings"), icon: Settings },
+      ],
+    },
+  ];
+
   const instructorLinks = [
     { href: "/instructor/schedule", label: "ตารางสอนของฉัน", icon: CalendarDays },
+    { href: "/tasks", label: "ภารกิจประจำวัน", icon: ClipboardList },
     { href: "/attendance", label: "ลงเวลางาน", icon: CalendarDays },
     { href: "/leave", label: "การลา", icon: CalendarOff },
     ...memberLinks,
   ];
 
   const staffLinks = [
+    { href: "/tasks", label: "ภารกิจประจำวัน", icon: ClipboardList },
     { href: "/attendance", label: "ลงเวลางาน", icon: CalendarDays },
     { href: "/leave", label: "การลา", icon: CalendarOff },
     { href: "/profile", label: t("nav.profile"), icon: User },
@@ -136,7 +207,35 @@ export const Header: FC = () => {
 
             {/* Navigation */}
             <nav className="flex-1 overflow-y-auto p-3 space-y-1">
-              {links.map((link) => {
+              {isAdmin ? adminGroups.map((group) => (
+                <div key={group.title} className="space-y-1">
+                  <div className="px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                    {group.title}
+                  </div>
+                  {group.links.map((link) => {
+                    const isActive = location === link.href;
+                    const Icon = link.icon;
+                    return (
+                      <Link key={link.href} href={link.href}>
+                        <div
+                          onClick={handleNavClick}
+                          className={cn(
+                            "flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors cursor-pointer",
+                            isActive
+                              ? "bg-primary text-primary-foreground"
+                              : "text-foreground hover:bg-accent hover:text-accent-foreground"
+                          )}
+                          data-testid={`link-mobile-${link.href.replace(/\//g, "-")}`}
+                        >
+                          <Icon className="w-5 h-5 shrink-0" />
+                          <span className="flex-1">{link.label}</span>
+                          {isActive && <ChevronRight className="w-4 h-4 opacity-60" />}
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )) : links.map((link) => {
                 const isActive = location === link.href;
                 const Icon = link.icon;
                 return (
@@ -219,6 +318,7 @@ export const Header: FC = () => {
           variant="ghost"
           size="icon"
           onClick={toggleTheme}
+          className="hidden md:inline-flex"
           title={t("theme.toggle")}
         >
           {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -228,7 +328,7 @@ export const Header: FC = () => {
           variant="outline"
           size="sm"
           onClick={toggleLanguage}
-          className="font-medium"
+          className="hidden md:inline-flex font-medium"
           data-testid="button-language-toggle"
         >
           {language === "th" ? "EN" : "ไทย"}

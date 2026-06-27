@@ -4,7 +4,8 @@ import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Package, Truck, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { Package, Truck, Clock, CheckCircle2, XCircle, Download } from "lucide-react";
+import { downloadCsv, csvStamp } from "@/lib/export-csv";
 
 type Item = { productId: number; name: string; price: number; qty: number };
 type Order = {
@@ -37,10 +38,31 @@ export const MyOrders: FC = () => {
 
   const paidOrders = (orders ?? []).filter((o) => o.status === "paid" || o.status === "shipped");
   const totalSpent = paidOrders.reduce((sum, o) => sum + o.subtotal, 0);
+  const exportOrders = () => {
+    downloadCsv(`my-orders-${csvStamp()}.csv`, [
+      ["เลขที่", "วันที่", "สินค้า", "ยอดรวม", "สถานะ", "ผู้รับ", "เบอร์โทร", "ที่อยู่", "เลขพัสดุ"],
+      ...(orders ?? []).map((o) => [
+        o.id,
+        new Date(o.createdAt).toLocaleString("th-TH"),
+        o.items.map((it) => `${it.name} x${it.qty}`).join("; "),
+        o.subtotal,
+        statusMap[o.status]?.label ?? o.status,
+        o.recipientName,
+        o.phone,
+        `${o.address} ${o.subdistrict ?? ""} ${o.district ?? ""} ${o.province ?? ""} ${o.zipcode ?? ""}`.trim(),
+        o.trackingNo || "",
+      ]),
+    ]);
+  };
 
   return (
     <div className="max-w-2xl mx-auto space-y-5">
-      <h1 className="text-2xl font-display font-extrabold flex items-center gap-2"><Package className="w-6 h-6 text-primary" /> คำสั่งซื้อของฉัน</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <h1 className="text-2xl font-display font-extrabold flex items-center gap-2"><Package className="w-6 h-6 text-primary" /> คำสั่งซื้อของฉัน</h1>
+        <Button variant="outline" className="gap-1.5" onClick={exportOrders} disabled={!orders?.length}>
+          <Download className="w-4 h-4" /> ดาวน์โหลดประวัติ
+        </Button>
+      </div>
 
       {!!orders?.length && (
         <Card className="bg-gradient-to-br from-primary/5 to-cyan-100/20 dark:to-cyan-900/10 border-primary/20">

@@ -8,7 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/page-header";
-import { Package, Truck, CheckCircle, XCircle, MapPin, Phone, User, Receipt, TrendingUp, Wallet, CalendarDays, Clock } from "lucide-react";
+import { Package, Truck, CheckCircle, XCircle, MapPin, Phone, User, Receipt, TrendingUp, Wallet, CalendarDays, Clock, Search, Download, Ticket } from "lucide-react";
+import { downloadCsv, csvStamp } from "@/lib/export-csv";
 
 type Item = { productId: number; name: string; price: number; qty: number };
 type Order = {
@@ -35,6 +36,9 @@ export function AdminOrders() {
   const [tab, setTab] = useState("pending");
   const [selected, setSelected] = useState<Order | null>(null);
   const [tracking, setTracking] = useState("");
+  const [search, setSearch] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
 
   const { data: orders, isLoading } = useQuery<Order[]>({
     queryKey: ["orders", "admin", tab],
@@ -45,12 +49,22 @@ export function AdminOrders() {
     },
   });
 
-  type Revenue = { totalRevenue: number; todayRevenue: number; monthRevenue: number; pendingRevenue: number; paidOrders: number; topProducts: { name: string; qty: number; revenue: number }[] };
+  type Revenue = {
+    totalRevenue: number;
+    todayRevenue: number;
+    monthRevenue: number;
+    pendingRevenue: number;
+    packageRevenue: number;
+    packageMonthRevenue: number;
+    paidOrders: number;
+    topProducts: { name: string; qty: number; revenue: number }[];
+    topPackages: { name: string; qty: number; revenue: number }[];
+  };
   const { data: revenue } = useQuery<Revenue>({
     queryKey: ["orders", "revenue"],
     queryFn: async () => {
       const r = await fetch(`${baseUrl}/api/orders/admin/revenue`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!r.ok) return { totalRevenue: 0, todayRevenue: 0, monthRevenue: 0, pendingRevenue: 0, paidOrders: 0, topProducts: [] };
+      if (!r.ok) return { totalRevenue: 0, todayRevenue: 0, monthRevenue: 0, pendingRevenue: 0, packageRevenue: 0, packageMonthRevenue: 0, paidOrders: 0, topProducts: [], topPackages: [] };
       return r.json();
     },
   });
@@ -72,17 +86,54 @@ export function AdminOrders() {
     },
     onError: () => toast({ title: "เกิดข้อผิดพลาด", variant: "destructive" }),
   });
+  const filteredOrders = (orders || []).filter((o) => {
+    const q = search.trim().toLowerCase();
+    const text = [
+      o.id,
+      o.user?.firstName,
+      o.user?.lastName,
+      o.user?.username,
+      o.recipientName,
+      o.phone,
+      o.status,
+      o.trackingNo,
+      ...o.items.map((i) => `${i.name} ${i.qty}`),
+    ].join(" ").toLowerCase();
+    const day = new Date(o.createdAt).toLocaleDateString("en-CA");
+    if (q && !text.includes(q)) return false;
+    if (from && day < from) return false;
+    if (to && day > to) return false;
+    return true;
+  });
+  const exportSales = () => {
+    downloadCsv(`club-sales-${tab}-${csvStamp()}.csv`, [
+      ["เลขที่", "วันที่", "สมาชิก", "ผู้รับ", "เบอร์โทร", "สินค้า", "ยอดรวม", "สถานะ", "เลขพัสดุ", "หมายเหตุ"],
+      ...filteredOrders.map((o) => [
+        o.id,
+        new Date(o.createdAt).toLocaleString("th-TH"),
+        `${o.user?.firstName ?? ""} ${o.user?.lastName ?? ""}`.trim(),
+        o.recipientName,
+        o.phone,
+        o.items.map((i) => `${i.name} x${i.qty}`).join("; "),
+        o.subtotal,
+        statusMap[o.status]?.label ?? o.status,
+        o.trackingNo || "",
+        o.note || "",
+      ]),
+    ]);
+  };
 
   return (
     <div className="p-6 space-y-6">
       <PageHeader title="คำสั่งซื้อสินค้า" subtitle="ตรวจสอบการชำระเงิน ที่อยู่ และจัดส่ง" icon={Package} gradient="from-fuchsia-400 to-pink-600" />
 
       {/* Revenue summary */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
         {[
           { label: "รายได้ทั้งหมด", value: revenue?.totalRevenue ?? 0, icon: TrendingUp, grad: "from-emerald-500 to-green-600" },
           { label: "รายได้เดือนนี้", value: revenue?.monthRevenue ?? 0, icon: CalendarDays, grad: "from-sky-500 to-blue-600" },
           { label: "รายได้วันนี้", value: revenue?.todayRevenue ?? 0, icon: Wallet, grad: "from-violet-500 to-indigo-600" },
+          { label: "ยอดขายแพ็กเกจ", value: revenue?.packageRevenue ?? 0, icon: Ticket, grad: "from-cyan-500 to-teal-600" },
           { label: "รอชำระ (ค้างรับ)", value: revenue?.pendingRevenue ?? 0, icon: Clock, grad: "from-amber-500 to-orange-600" },
         ].map((s, i) => (
           <Card key={i} className="relative overflow-hidden">
@@ -114,6 +165,22 @@ export function AdminOrders() {
         </Card>
       ) : null}
 
+      {revenue?.topPackages?.length ? (
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-sm font-semibold mb-2 flex items-center gap-1.5"><Ticket className="w-4 h-4 text-primary" /> แพ็กเกจขายดี / แพ็กเกจพิเศษ</div>
+            <div className="space-y-1.5">
+              {revenue.topPackages.map((p, i) => (
+                <div key={i} className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground"><span className="font-mono text-xs mr-2">#{i + 1}</span>{p.name} <span className="text-xs">× {p.qty}</span></span>
+                  <span className="font-semibold text-primary">{baht(p.revenue)}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Tabs value={tab} onValueChange={(v) => { setTab(v); setSelected(null); }}>
         <TabsList>
           <TabsTrigger value="pending">รอชำระ</TabsTrigger>
@@ -121,14 +188,28 @@ export function AdminOrders() {
           <TabsTrigger value="shipped">จัดส่งแล้ว</TabsTrigger>
           <TabsTrigger value="all">ทั้งหมด</TabsTrigger>
         </TabsList>
+        <Card className="mt-4">
+          <CardContent className="flex flex-wrap items-center gap-2 p-3">
+            <div className="relative min-w-[240px] flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาสินค้า สมาชิก เบอร์โทร หรือเลขออเดอร์..." className="pl-9" />
+            </div>
+            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-9 w-auto" />
+            <span className="text-muted-foreground">–</span>
+            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-9 w-auto" />
+            <Button variant="outline" className="gap-1.5" onClick={exportSales} disabled={!filteredOrders.length}>
+              <Download className="h-4 w-4" /> ดาวน์โหลดรายงานยอดขาย
+            </Button>
+          </CardContent>
+        </Card>
         <TabsContent value={tab}>
           {isLoading ? (
             <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>
-          ) : !orders?.length ? (
+          ) : !filteredOrders.length ? (
             <div className="text-center py-12 text-muted-foreground"><Package className="w-12 h-12 mx-auto mb-3 opacity-30" /><p>ไม่มีคำสั่งซื้อ</p></div>
           ) : (
             <div className="space-y-3 mt-4">
-              {orders.map((o) => (
+              {filteredOrders.map((o) => (
                 <Card key={o.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => { setSelected(o); setTracking(o.trackingNo ?? ""); }}>
                   <CardContent className="p-4 flex items-center gap-4">
                     <div className="flex-1 min-w-0">

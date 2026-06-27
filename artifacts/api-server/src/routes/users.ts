@@ -1,7 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { db, usersTable, memberPackagesTable, membershipPackagesTable, packageUsagesTable, reservationsTable } from "@workspace/db";
-import { eq, or, ilike, sql, and, inArray } from "drizzle-orm";
+import { eq, or, ilike, sql, and, inArray, gte } from "drizzle-orm";
 import { authenticate, requireAdmin, isAdminRole } from "../middlewares/auth.js";
 import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
 import { backupUsers, formatBackupUser } from "../lib/backup.js";
@@ -77,7 +77,9 @@ router.get("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
             ilike(usersTable.lastName, `%${search}%`),
             ilike(usersTable.email, `%${search}%`),
             ilike(usersTable.username, `%${search}%`),
-            ilike(usersTable.houseNumber, `%${search}%`)
+            ilike(usersTable.houseNumber, `%${search}%`),
+            ilike(usersTable.phone, `%${search}%`),
+            ilike(usersTable.phoneE164, `%${search}%`)
           )
         : undefined
     );
@@ -127,6 +129,92 @@ router.get("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
     });
   } catch {
     return res.status(500).json({ error: "Failed to list users" });
+  }
+});
+
+// GET /users/report?range=day|week|month|all — admin CSV/report data.
+router.get("/report", authenticate, requireAdmin, attachBranch, async (req, res) => {
+  try {
+    const range = String(req.query.range || "month");
+    const search = req.query.search as string | undefined;
+    const role = req.query.role as string | undefined;
+    const now = new Date();
+    let from: Date | null = null;
+    if (range === "day") from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (range === "week") from = new Date(now.getTime() - 7 * 86400000);
+    if (range === "month") from = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const where = and(
+      branchEq(req, usersTable.branchId),
+      from ? gte(usersTable.createdAt, from) : undefined,
+      role && role !== "all" ? eq(usersTable.role, role as any) : undefined,
+      search
+        ? or(
+            ilike(usersTable.firstName, `%${search}%`),
+            ilike(usersTable.lastName, `%${search}%`),
+            ilike(usersTable.email, `%${search}%`),
+            ilike(usersTable.username, `%${search}%`),
+            ilike(usersTable.houseNumber, `%${search}%`),
+            ilike(usersTable.phone, `%${search}%`),
+            ilike(usersTable.phoneE164, `%${search}%`),
+          )
+        : undefined,
+    );
+
+    const users = await db.select().from(usersTable).where(where).orderBy(usersTable.id).limit(5000);
+    const ids = users.map((u) => u.id);
+    const pkgRows = ids.length
+      ? await db
+          .select({ mp: memberPackagesTable, pkg: membershipPackagesTable })
+          .from(memberPackagesTable)
+          .innerJoin(membershipPackagesTable, eq(memberPackagesTable.packageId, membershipPackagesTable.id))
+          .where(inArray(memberPackagesTable.userId, ids))
+      : [];
+    const usageRows = ids.length
+      ? await db
+          .select({
+            userId: packageUsagesTable.userId,
+            count: sql<number>`count(*)::int`,
+            lastUse: sql<Date | null>`max(${packageUsagesTable.createdAt})`,
+          })
+          .from(packageUsagesTable)
+          .where(inArray(packageUsagesTable.userId, ids))
+          .groupBy(packageUsagesTable.userId)
+      : [];
+
+    const packagesByUser = new Map<number, typeof pkgRows>();
+    for (const row of pkgRows) {
+      const rows = packagesByUser.get(row.mp.userId) ?? [];
+      rows.push(row);
+      packagesByUser.set(row.mp.userId, rows);
+    }
+    const usageByUser = new Map(usageRows.map((r) => [r.userId, r]));
+    const today = now.getTime();
+
+    return res.json({
+      range,
+      generatedAt: now.toISOString(),
+      users: users.map((u) => {
+        const rows = packagesByUser.get(u.id) ?? [];
+        const active = rows.filter(({ mp }) => mp.status === "active" && new Date(mp.endDate).getTime() > today);
+        const expired = rows.filter(({ mp }) => mp.status === "expired" || new Date(mp.endDate).getTime() <= today);
+        const latest = rows.slice().sort((a, b) => b.mp.createdAt.getTime() - a.mp.createdAt.getTime())[0];
+        const usage = usageByUser.get(u.id);
+        return {
+          ...formatUser(u),
+          activePackages: active.length,
+          expiredPackages: expired.length,
+          totalPackages: rows.length,
+          latestPackageName: latest?.pkg.name ?? null,
+          latestPackageStatus: latest?.mp.status ?? null,
+          latestPackageEndDate: latest?.mp.endDate.toISOString() ?? null,
+          totalUses: usage?.count ?? 0,
+          lastUse: usage?.lastUse ? new Date(usage.lastUse).toISOString() : null,
+        };
+      }),
+    });
+  } catch {
+    return res.status(500).json({ error: "Failed to build user report" });
   }
 });
 

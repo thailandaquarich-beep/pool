@@ -158,7 +158,8 @@ export const AssistantWidget: FC = () => {
           const line = buf.slice(0, i).trim();
           buf = buf.slice(i + 2);
           if (!line.startsWith("data:")) continue;
-          const o = JSON.parse(line.slice(5).trim());
+          let o: { t?: string; escalate?: boolean; nav?: string; error?: string };
+          try { o = JSON.parse(line.slice(5).trim()); } catch { continue; }
           if (o.t) { acc += o.t; setMessages((m) => patchLast(m, acc)); }
           if (o.escalate) setEscalated(true);
           if (o.nav) navTo = o.nav; // น้องอควา is taking the member to a page / after booking

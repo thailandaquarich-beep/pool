@@ -26,9 +26,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Search, XCircle, ChevronLeft, ChevronRight, Calendar, CalendarDays, Clock, Users, CheckCircle2, Ticket, Filter, X } from "lucide-react";
+import { Search, XCircle, ChevronLeft, ChevronRight, Calendar, CalendarDays, Clock, Users, CheckCircle2, Ticket, Filter, X, Download } from "lucide-react";
 import { MemberAvatar } from "@/components/member-avatar";
 import { PageHeader } from "@/components/page-header";
+import { downloadCsv, csvStamp } from "@/lib/export-csv";
 
 type Reservation = {
   id: number;
@@ -42,10 +43,18 @@ type Reservation = {
   price?: number;
   user?: { firstName: string; lastName: string; houseNumber?: string | null; profileImageUrl?: string | null };
   instructor?: { firstName: string; lastName: string } | null;
+  package?: { name: string; nameEn?: string; memberPackageId: number } | null;
 };
 
 const formatBaht = (n: number) =>
   new Intl.NumberFormat("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
+
+const STATUS_LABELS: Record<string, string> = {
+  confirmed: "ยืนยันแล้ว",
+  pending: "รอดำเนินการ",
+  cancelled: "ยกเลิกแล้ว",
+  maintenance: "ปิดปรับปรุง",
+};
 
 const StatusBadge = ({ status }: { status: string }) => {
   const map: Record<string, { label: string; dot: string; bg: string; text: string }> = {
@@ -74,10 +83,14 @@ const VIEW_LABELS: Record<string, string> = {
 
 function viewToParams(view: string | null) {
   if (!view) return {};
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const now = new Date();
-  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+  const bkkParts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Bangkok", year: "numeric", month: "numeric" }).formatToParts(now);
+  const year = Number(bkkParts.find((p) => p.type === "year")?.value);
+  const month = Number(bkkParts.find((p) => p.type === "month")?.value);
+  const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
   switch (view) {
     case "today": return { date: today };
     case "month": return { startDate: monthStart, endDate: monthEnd };
@@ -95,17 +108,40 @@ export function AdminReservations() {
   const view = new URLSearchParams(searchStr).get("view");
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sortOrder, setSortOrder] = useState<"date_asc" | "date_desc">("date_asc");
   const [search, setSearch] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+  const [startDateFilter, setStartDateFilter] = useState("");
+  const [endDateFilter, setEndDateFilter] = useState("");
   const [page, setPage] = useState(1);
   const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   // A new deep-link (view change) always starts back on page 1.
   useEffect(() => { setPage(1); }, [view]);
 
+  const manualDateParams = !view
+    ? dateFilter
+      ? { date: dateFilter }
+      : {
+          ...(startDateFilter ? { startDate: startDateFilter } : {}),
+          ...(endDateFilter ? { endDate: endDateFilter } : {}),
+        }
+    : {};
+  const hasDateFilter = Boolean(dateFilter || startDateFilter || endDateFilter);
+  const clearDateFilters = () => {
+    setDateFilter("");
+    setStartDateFilter("");
+    setEndDateFilter("");
+    setPage(1);
+  };
+
   const params = {
     page,
     limit: 20,
+    sort: sortOrder,
     ...viewToParams(view),
+    ...manualDateParams,
     // The manual status dropdown only applies when no named view is active.
     ...(!view && statusFilter !== "all" ? { status: statusFilter } : {}),
   };
@@ -161,6 +197,89 @@ export function AdminReservations() {
       })
     : reservations;
 
+  const sortedFiltered = [...filtered].sort((a, b) => {
+    const aKey = `${a.date} ${a.startTime}`;
+    const bKey = `${b.date} ${b.startTime}`;
+    return sortOrder === "date_asc" ? aKey.localeCompare(bKey) : bKey.localeCompare(aKey);
+  });
+
+  const exportReservations = async () => {
+    setExporting(true);
+    let rows = sortedFiltered;
+    try {
+      const exportParams = new URLSearchParams();
+      const baseParams = { ...params, page: 1, limit: 100 } as Record<string, string | number | undefined>;
+      Object.entries(baseParams).forEach(([key, value]) => {
+        if (value !== undefined && value !== "") exportParams.set(key, String(value));
+      });
+      const firstRes = await fetch(`${baseUrl}/api/reservations?${exportParams.toString()}`, {
+        headers: { Authorization: `Bearer ${apiToken}` },
+      });
+      if (!firstRes.ok) throw new Error("download query failed");
+      const firstData = await firstRes.json();
+      const firstRows: Reservation[] = Array.isArray(firstData) ? firstData : firstData.reservations ?? [];
+      const pages = Math.max(1, Number(firstData.totalPages ?? 1));
+      const allRows = [...firstRows];
+      for (let p = 2; p <= pages; p += 1) {
+        exportParams.set("page", String(p));
+        const res = await fetch(`${baseUrl}/api/reservations?${exportParams.toString()}`, {
+          headers: { Authorization: `Bearer ${apiToken}` },
+        });
+        if (!res.ok) throw new Error("download query failed");
+        const data = await res.json();
+        allRows.push(...(Array.isArray(data) ? data : data.reservations ?? []));
+      }
+      rows = (search
+        ? allRows.filter((r) => {
+            const name = `${r.user?.firstName ?? ""} ${r.user?.lastName ?? ""}`.toLowerCase();
+            const house = (r.user?.houseNumber ?? "").toLowerCase();
+            const q = search.toLowerCase();
+            return name.includes(q) || house.includes(q);
+          })
+        : allRows
+      ).sort((a, b) => {
+        const aKey = `${a.date} ${a.startTime}`;
+        const bKey = `${b.date} ${b.startTime}`;
+        return sortOrder === "date_asc" ? aKey.localeCompare(bKey) : bKey.localeCompare(aKey);
+      });
+    } catch {
+      toast({ title: "ดาวน์โหลดจากเซิร์ฟเวอร์ไม่สำเร็จ", description: "ระบบจะดาวน์โหลดข้อมูลที่แสดงอยู่บนหน้านี้แทน", variant: "destructive" });
+    }
+    downloadCsv(`admin-reservations-${csvStamp()}.csv`, [
+      [
+        "เลขที่จอง",
+        "วันที่จอง",
+        "เวลาเริ่ม",
+        "เวลาจบ",
+        "สมาชิก",
+        "บ้านเลขที่",
+        "จำนวนคน",
+        "คอร์ส",
+        "ครูฝึก",
+        "สถานะ",
+        "หมายเหตุ",
+        "ราคา",
+        "สร้างเมื่อ",
+      ],
+      ...rows.map((r: any) => [
+        r.id,
+        r.date,
+        r.startTime,
+        r.endTime,
+        `${r.user?.firstName ?? ""} ${r.user?.lastName ?? ""}`.trim(),
+        r.user?.houseNumber ?? "",
+        r.numberOfPeople,
+        r.package?.name ?? "",
+        r.instructor ? `${r.instructor.firstName ?? ""} ${r.instructor.lastName ?? ""}`.trim() : "",
+        STATUS_LABELS[r.status] ?? r.status,
+        r.notes ?? "",
+        r.price ?? 0,
+        r.createdAt ? new Date(r.createdAt).toLocaleString("th-TH") : "",
+      ]),
+    ]);
+    setExporting(false);
+  };
+
   const formatDate = (d: string) =>
     new Date(d).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" });
 
@@ -175,41 +294,136 @@ export function AdminReservations() {
       />
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            placeholder="ค้นหาชื่อสมาชิก, บ้านเลขที่..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            data-testid="search-input"
-          />
-        </div>
-        {view ? (
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium" data-testid="active-view-chip">
-              <Filter className="w-3.5 h-3.5" /> {VIEW_LABELS[view] ?? view}
-            </span>
-            <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground" onClick={() => navigate("/admin/reservations")} data-testid="clear-view">
-              <X className="w-4 h-4" /> ล้างตัวกรอง
-            </Button>
+      <div className="rounded-2xl border border-border/70 bg-card/85 p-3 shadow-sm sm:p-4">
+        <div className="flex flex-wrap gap-3">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder="ค้นหาชื่อสมาชิก, บ้านเลขที่..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              data-testid="search-input"
+            />
           </div>
-        ) : (
-          <Select
-            value={statusFilter}
-            onValueChange={(v) => { setStatusFilter(v); setPage(1); }}
+          {view ? (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium" data-testid="active-view-chip">
+                <Filter className="w-3.5 h-3.5" /> {VIEW_LABELS[view] ?? view}
+              </span>
+              <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground" onClick={() => navigate("/admin/reservations")} data-testid="clear-view">
+                <X className="w-4 h-4" /> ล้างตัวกรอง
+              </Button>
+            </div>
+          ) : (
+            <>
+            <Select
+              value={statusFilter}
+              onValueChange={(v) => { setStatusFilter(v); setPage(1); }}
+            >
+              <SelectTrigger className="w-full sm:w-[160px]" data-testid="status-filter">
+                <SelectValue placeholder="สถานะทั้งหมด" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">ทุกสถานะ</SelectItem>
+                <SelectItem value="confirmed">ยืนยันแล้ว</SelectItem>
+                <SelectItem value="pending">รอดำเนินการ</SelectItem>
+                <SelectItem value="cancelled">ยกเลิกแล้ว</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={sortOrder}
+              onValueChange={(v) => { setSortOrder(v as "date_asc" | "date_desc"); setPage(1); }}
+            >
+              <SelectTrigger className="w-full sm:w-[190px]" data-testid="reservation-date-sort">
+                <SelectValue placeholder="เรียงตามวันที่" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="date_asc">วันที่ใกล้ก่อน</SelectItem>
+                <SelectItem value="date_desc">วันที่ล่าสุดก่อน</SelectItem>
+              </SelectContent>
+            </Select>
+            </>
+          )}
+          <Button
+            variant="outline"
+            className="gap-1.5"
+            onClick={exportReservations}
+            disabled={isLoading || exporting || sortedFiltered.length === 0}
+            data-testid="reservation-export-btn"
           >
-            <SelectTrigger className="w-[160px]" data-testid="status-filter">
-              <SelectValue placeholder="สถานะทั้งหมด" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">ทุกสถานะ</SelectItem>
-              <SelectItem value="confirmed">ยืนยันแล้ว</SelectItem>
-              <SelectItem value="pending">รอดำเนินการ</SelectItem>
-              <SelectItem value="cancelled">ยกเลิกแล้ว</SelectItem>
-            </SelectContent>
-          </Select>
+            <Download className="h-4 w-4" /> {exporting ? "กำลังดาวน์โหลด..." : "ดาวน์โหลดข้อมูล"}
+          </Button>
+        </div>
+
+        {!view && (
+          <div className="mt-3 rounded-xl border border-primary/15 bg-gradient-to-r from-cyan-50/70 to-blue-50/50 p-3 dark:from-cyan-950/20 dark:to-blue-950/10">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10">
+                  <Calendar className="h-4 w-4" />
+                </span>
+                ค้นหาตามวันที่จอง
+              </div>
+              {hasDateFilter && (
+                <Button variant="ghost" size="sm" className="h-8 gap-1 text-muted-foreground" onClick={clearDateFilters} data-testid="clear-date-filter">
+                  <X className="h-3.5 w-3.5" /> ล้างวันที่
+                </Button>
+              )}
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-[minmax(180px,240px)_1fr]">
+              <label className="space-y-1.5">
+                <span className="text-xs font-medium text-muted-foreground">เลือกวันที่เดียว</span>
+                <Input
+                  type="date"
+                  value={dateFilter}
+                  onChange={(e) => {
+                    setDateFilter(e.target.value);
+                    if (e.target.value) {
+                      setStartDateFilter("");
+                      setEndDateFilter("");
+                    }
+                    setPage(1);
+                  }}
+                  data-testid="reservation-date-filter"
+                />
+              </label>
+
+              <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">ตั้งแต่วันที่</span>
+                  <Input
+                    type="date"
+                    value={startDateFilter}
+                    disabled={Boolean(dateFilter)}
+                    onChange={(e) => { setStartDateFilter(e.target.value); setPage(1); }}
+                    data-testid="reservation-start-date-filter"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">ถึงวันที่</span>
+                  <Input
+                    type="date"
+                    value={endDateFilter}
+                    disabled={Boolean(dateFilter)}
+                    min={startDateFilter || undefined}
+                    onChange={(e) => { setEndDateFilter(e.target.value); setPage(1); }}
+                    data-testid="reservation-end-date-filter"
+                  />
+                </label>
+                <div className="flex items-end">
+                  <span className="inline-flex min-h-9 items-center rounded-xl bg-background/80 px-3 text-xs text-muted-foreground ring-1 ring-border">
+                    {dateFilter
+                      ? `แสดงเฉพาะ ${formatDate(dateFilter)}`
+                      : startDateFilter || endDateFilter
+                        ? `ช่วง ${startDateFilter ? formatDate(startDateFilter) : "เริ่มต้น"} - ${endDateFilter ? formatDate(endDateFilter) : "ปัจจุบัน"}`
+                        : "เลือกวันเดียวหรือช่วงวันที่"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
 
@@ -221,7 +435,7 @@ export function AdminReservations() {
               <div key={i} className="h-14 rounded-lg bg-muted animate-pulse" />
             ))}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : sortedFiltered.length === 0 ? (
           <div className="p-16 text-center">
             <Calendar className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
             <p className="text-muted-foreground font-medium">ไม่พบรายการจอง</p>
@@ -236,6 +450,7 @@ export function AdminReservations() {
                   <th className="text-left px-4 py-3 font-semibold text-muted-foreground">วันที่</th>
                   <th className="text-left px-4 py-3 font-semibold text-muted-foreground">เวลา</th>
                   <th className="hidden md:table-cell text-left px-4 py-3 font-semibold text-muted-foreground">จำนวน</th>
+                  <th className="hidden lg:table-cell text-left px-4 py-3 font-semibold text-muted-foreground">คอร์ส</th>
                   <th className="hidden lg:table-cell text-left px-4 py-3 font-semibold text-muted-foreground">ครูฝึก</th>
                   <th className="text-left px-4 py-3 font-semibold text-muted-foreground">สถานะ</th>
                   <th className="hidden lg:table-cell text-left px-4 py-3 font-semibold text-muted-foreground">หมายเหตุ</th>
@@ -243,7 +458,7 @@ export function AdminReservations() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => (
+                {sortedFiltered.map((r) => (
                   <tr key={r.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
@@ -275,6 +490,14 @@ export function AdminReservations() {
                         <Users className="w-3.5 h-3.5 text-muted-foreground" />
                         {r.numberOfPeople} คน
                       </div>
+                    </td>
+                    <td className="hidden lg:table-cell px-4 py-3 text-foreground">
+                      {r.package ? (
+                        <div className="flex items-center gap-1.5">
+                          <Ticket className="w-3.5 h-3.5 text-primary" />
+                          <span className="truncate max-w-[160px]">{r.package.name}</span>
+                        </div>
+                      ) : <span className="text-muted-foreground">–</span>}
                     </td>
                     <td className="hidden lg:table-cell px-4 py-3 text-foreground">
                       {r.instructor ? `${r.instructor.firstName} ${r.instructor.lastName}` : <span className="text-muted-foreground">–</span>}

@@ -1,12 +1,13 @@
 import { Router } from "express";
 import fs from "fs/promises";
 import path from "path";
-import { db, ordersTable, productsTable, usersTable } from "@workspace/db";
+import { db, ordersTable, productsTable, usersTable, transactionsTable } from "@workspace/db";
 import { eq, desc, and, inArray, sql } from "drizzle-orm";
 import { authenticate, requireAdmin, isAdminRole } from "../middlewares/auth.js";
 import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
 import { dataDirs } from "../lib/dataPaths.js";
 import { appendMemberLog } from "../lib/memberLog.js";
+import { appendEncryptedLine, writeEncryptedFile } from "../lib/cryptoVault.js";
 
 const router = Router();
 
@@ -39,7 +40,7 @@ async function logSale(o: OrderRow) {
       province: o.province ?? null,
       paidAt: o.paidAt ? o.paidAt.toISOString() : new Date().toISOString(),
     };
-    await fs.appendFile(path.join(dataDirs.sales, `sales-${today.slice(0, 7)}.jsonl`), JSON.stringify(entry) + "\n", "utf8");
+    await appendEncryptedLine(path.join(dataDirs.sales, `sales-${today.slice(0, 7)}.jsonl`), JSON.stringify(entry) + "\n");
   } catch { /* ignore */ }
 }
 
@@ -53,8 +54,8 @@ async function saveSlip(dataUrl: unknown, orderId: number, userId: number): Prom
     await fs.mkdir(dataDirs.slips, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `order-${orderId}-user-${userId}-${stamp}.${ext}`;
-    await fs.writeFile(path.join(dataDirs.slips, filename), buf);
-    return filename;
+    await writeEncryptedFile(path.join(dataDirs.slips, filename), buf.toString("base64"));
+    return `${filename}.enc`;
   } catch { return null; }
 }
 
@@ -162,11 +163,17 @@ router.get("/admin/pending-count", authenticate, requireAdmin, attachBranch, asy
 router.get("/admin/revenue", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
     const rows = await db.select().from(ordersTable).where(branchEq(req, ordersTable.branchId));
+    const packageTransactions = await db
+      .select()
+      .from(transactionsTable)
+      .where(and(eq(transactionsTable.type, "package_purchase"), eq(transactionsTable.status, "completed"), branchEq(req, transactionsTable.branchId)));
     const todayStr = bkkDay.format(new Date());
     const monthStr = todayStr.slice(0, 7);
     let totalRevenue = 0, todayRevenue = 0, monthRevenue = 0, pendingRevenue = 0;
+    let packageRevenue = 0, packageTodayRevenue = 0, packageMonthRevenue = 0;
     const counts: Record<string, number> = { pending: 0, paid: 0, shipped: 0, cancelled: 0 };
     const productAgg: Record<string, { name: string; qty: number; revenue: number }> = {};
+    const packageAgg: Record<string, { name: string; qty: number; revenue: number }> = {};
 
     for (const o of rows) {
       counts[o.status] = (counts[o.status] ?? 0) + 1;
@@ -189,10 +196,23 @@ router.get("/admin/revenue", authenticate, requireAdmin, attachBranch, async (re
         pendingRevenue += amount;
       }
     }
+    for (const t of packageTransactions) {
+      const amount = Number(t.amount);
+      packageRevenue += amount;
+      const day = bkkDay.format(t.createdAt);
+      if (day === todayStr) packageTodayRevenue += amount;
+      if (day.slice(0, 7) === monthStr) packageMonthRevenue += amount;
+      const name = t.description.replace(/^Admin package:\s*/i, "").replace(/^เธเธทเนเธญเนเธเนเธเน€เธเธ:\s*/i, "").trim() || "Package";
+      if (!packageAgg[name]) packageAgg[name] = { name, qty: 0, revenue: 0 };
+      packageAgg[name].qty += 1;
+      packageAgg[name].revenue += amount;
+    }
     const topProducts = Object.values(productAgg).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+    const topPackages = Object.values(packageAgg).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
     return res.json({
       totalRevenue, todayRevenue, monthRevenue, pendingRevenue,
-      paidOrders: counts.paid + counts.shipped, counts, topProducts,
+      packageRevenue, packageTodayRevenue, packageMonthRevenue,
+      paidOrders: counts.paid + counts.shipped, counts, topProducts, topPackages,
     });
   } catch {
     return res.status(500).json({ error: "Failed to compute revenue" });

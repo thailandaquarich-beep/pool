@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { db, reservationsTable, usersTable, facilitiesTable, instructorsTable, membershipPackagesTable, branchesTable, ordersTable, attendanceTable } from "@workspace/db";
+import { db, reservationsTable, usersTable, facilitiesTable, instructorsTable, membershipPackagesTable, branchesTable, ordersTable, attendanceTable, transactionsTable } from "@workspace/db";
 import { eq, gte, lte, and, sql, inArray, isNull, asc } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth.js";
 import { attachBranch, branchEq } from "../middlewares/branch.js";
 import { memberCode } from "../lib/memberCode.js";
+import { bangkokDate } from "../lib/date.js";
 
 const router = Router();
 
@@ -47,23 +48,41 @@ router.get("/branches", authenticate, async (req, res) => {
     const resTotal = await db.select({ b: reservationsTable.branchId, n: sql<number>`count(*)::int` }).from(reservationsTable).groupBy(reservationsTable.branchId);
     const resToday = await db.select({ b: reservationsTable.branchId, n: sql<number>`count(*)::int` }).from(reservationsTable).where(eq(reservationsTable.date, today)).groupBy(reservationsTable.branchId);
     const revenue = await db.select({ b: ordersTable.branchId, total: sql<number>`coalesce(sum(${ordersTable.subtotal}),0)::float` }).from(ordersTable).where(inArray(ordersTable.status, ["paid", "shipped"])).groupBy(ordersTable.branchId);
+    const specialPackageRevenue = await db
+      .select({
+        b: usersTable.branchId,
+        total: sql<number>`coalesce(sum(${transactionsTable.amount}),0)::float`,
+        count: sql<number>`count(${transactionsTable.id})::int`,
+      })
+      .from(transactionsTable)
+      .innerJoin(usersTable, eq(transactionsTable.userId, usersTable.id))
+      .where(and(eq(transactionsTable.type, "package_purchase"), eq(transactionsTable.status, "completed")))
+      .groupBy(usersTable.branchId);
     const onDuty = await db.select({ b: attendanceTable.branchId, n: sql<number>`count(*)::int` }).from(attendanceTable).where(isNull(attendanceTable.clockOut)).groupBy(attendanceTable.branchId);
 
     const map = (rows: any[], key = "n") => new Map(rows.map((r) => [r.b, r[key]]));
-    const M = map(members), RT = map(resTotal), RD = map(resToday), RV = map(revenue, "total"), DU = map(onDuty);
+    const M = map(members), RT = map(resTotal), RD = map(resToday), RV = map(revenue, "total"), SP = map(specialPackageRevenue, "total"), SPC = map(specialPackageRevenue, "count"), DU = map(onDuty);
 
     const list = branches.map((b) => ({
       id: b.id, name: b.name, nameEn: b.nameEn, code: b.code, isMain: b.isMain, isActive: b.isActive,
       members: M.get(b.id) || 0,
       reservations: RT.get(b.id) || 0,
       reservationsToday: RD.get(b.id) || 0,
-      revenue: RV.get(b.id) || 0,
+      orderRevenue: RV.get(b.id) || 0,
+      specialPackageRevenue: SP.get(b.id) || 0,
+      specialPackageCount: SPC.get(b.id) || 0,
+      revenue: (RV.get(b.id) || 0) + (SP.get(b.id) || 0),
       onDuty: DU.get(b.id) || 0,
     }));
     const totals = list.reduce((a, b) => ({
       members: a.members + b.members, reservations: a.reservations + b.reservations,
-      reservationsToday: a.reservationsToday + b.reservationsToday, revenue: a.revenue + b.revenue, onDuty: a.onDuty + b.onDuty,
-    }), { members: 0, reservations: 0, reservationsToday: 0, revenue: 0, onDuty: 0 });
+      reservationsToday: a.reservationsToday + b.reservationsToday,
+      orderRevenue: a.orderRevenue + b.orderRevenue,
+      specialPackageRevenue: a.specialPackageRevenue + b.specialPackageRevenue,
+      specialPackageCount: a.specialPackageCount + b.specialPackageCount,
+      revenue: a.revenue + b.revenue,
+      onDuty: a.onDuty + b.onDuty,
+    }), { members: 0, reservations: 0, reservationsToday: 0, orderRevenue: 0, specialPackageRevenue: 0, specialPackageCount: 0, revenue: 0, onDuty: 0 });
 
     return res.json({ branches: list, totals });
   } catch {
@@ -74,7 +93,7 @@ router.get("/branches", authenticate, async (req, res) => {
 // GET /stats/admin
 router.get("/admin", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
-    const today = new Date().toISOString().split("T")[0];
+    const today = bangkokDate();
     const monthStart = today.slice(0, 7) + "-01";
     const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)
       .toISOString()
@@ -137,7 +156,7 @@ router.get("/admin", authenticate, requireAdmin, attachBranch, async (req, res) 
 // GET /stats/member
 router.get("/member", authenticate, async (req, res) => {
   try {
-    const today = new Date().toISOString().split("T")[0];
+    const today = bangkokDate();
     const monthStart = today.slice(0, 7) + "-01";
     const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)
       .toISOString()

@@ -12,6 +12,7 @@ export const instructorAvailabilityTable = pgTable("instructor_availability", {
   date: date("date"),               // for kind=date (YYYY-MM-DD)
   startTime: text("start_time").notNull(), // "HH:MM"
   endTime: text("end_time").notNull(),
+  maxPeople: integer("max_people").notNull().default(5),
   note: text("note"),
   isAvailable: boolean("is_available").notNull().default(true), // false = blocked-out slot
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

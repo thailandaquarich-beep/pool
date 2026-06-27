@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import bcrypt from "bcryptjs";
 import { db, usersTable } from "@workspace/db";
 import { eq, or } from "drizzle-orm";
@@ -12,10 +12,19 @@ import { generateCaptcha, verifyCaptcha } from "../lib/captcha.js";
 import { createOtp, verifyOtp, resendWait } from "../lib/otp.js";
 import { sendMail, mailerConfigured } from "../lib/mailer.js";
 import { normalizePhone } from "../lib/phone.js";
+import { clearRateLimit, rateLimit, requestIp } from "../middlewares/security.js";
+import { recordAudit } from "../lib/audit.js";
 
 const router = Router();
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function loginLimitKey(req: Request): string {
+  const identifier = String(req.body?.usernameOrEmail || "").trim().toLowerCase() || "unknown";
+  return `${requestIp(req)}:${identifier}`;
+}
 
 function formatUser(user: typeof usersTable.$inferSelect) {
   const { passwordHash: _, ...rest } = user;
@@ -44,7 +53,15 @@ router.get("/captcha", (_req, res) => {
 
 // POST /auth/register/send-otp — verify captcha, then email a 6-digit OTP.
 // Gating OTP send behind the captcha prevents bots from spamming emails.
-router.post("/register/send-otp", async (req, res) => {
+router.post(
+  "/register/send-otp",
+  rateLimit({
+    windowMs: 15 * 60_000,
+    max: 5,
+    keyPrefix: "otp",
+    key: (req) => `${requestIp(req)}:${String(req.body?.email || "").trim().toLowerCase() || "unknown"}`,
+  }),
+  async (req, res) => {
   try {
     const { email, username, captchaId, captchaAnswer } = req.body || {};
     if (!email || !EMAIL_RE.test(String(email))) {
@@ -85,7 +102,8 @@ router.post("/register/send-otp", async (req, res) => {
   } catch {
     return res.status(500).json({ error: "Failed to send OTP" });
   }
-});
+  },
+);
 
 // POST /auth/register — email-OTP verified signup (server sends the code via Brevo).
 router.post("/register", async (req, res) => {
@@ -148,7 +166,15 @@ router.post("/register", async (req, res) => {
 });
 
 // POST /auth/login
-router.post("/login", async (req, res) => {
+router.post(
+  "/login",
+  rateLimit({
+    windowMs: 15 * 60_000,
+    max: 10,
+    keyPrefix: "login",
+    key: loginLimitKey,
+  }),
+  async (req, res) => {
   try {
     const { usernameOrEmail, password, rememberMe, deviceFingerprint } = req.body;
     // Capture connection details now (req is alive); enrich + log after we respond.
@@ -171,24 +197,59 @@ router.post("/login", async (req, res) => {
       .limit(1);
 
     if (!user) {
+      await sleep(350);
+      await recordAudit({
+        req,
+        user: null,
+        action: "login_failed",
+        statusCode: 401,
+        targetType: "auth",
+        metadata: { identifier: ident, reason: "user_not_found" },
+      });
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    const valid = await bcrypt.compare(password, user.passwordHash);
+    let valid = false;
+    try {
+      valid = await bcrypt.compare(String(password), user.passwordHash);
+    } catch {
+      valid = false;
+    }
     if (!valid) {
+      await sleep(350);
+      await recordAudit({
+        req,
+        user: { userId: user.id, username: user.username, role: user.role },
+        action: "login_failed",
+        statusCode: 401,
+        targetType: "auth",
+        targetId: user.id,
+        metadata: { identifier: ident, reason: "bad_password" },
+      });
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
     const token = signToken({ userId: user.id, username: user.username, role: user.role }, !!rememberMe);
+    clearRateLimit("login", loginLimitKey(req));
 
     await writeMemberProfile(user);
     void logClientSession(user.id, session, "login");
+    await recordAudit({
+      req,
+      user: { userId: user.id, username: user.username, role: user.role },
+      action: "login_success",
+      statusCode: 200,
+      targetType: "auth",
+      targetId: user.id,
+      metadata: { rememberMe: !!rememberMe },
+    });
 
     return res.json({ token, user: formatUser(user) });
   } catch (err) {
     return res.status(500).json({ error: "Login failed" });
   }
-});
+  },
+);
 
 // POST /auth/logout
 router.post("/logout", (req, res) => {

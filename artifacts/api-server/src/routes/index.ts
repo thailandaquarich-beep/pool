@@ -23,6 +23,8 @@ import devSupportRouter from "./devSupport";
 import attendanceRouter from "./attendance";
 import branchesRouter from "./branches";
 import leaveRouter from "./leave";
+import tasksRouter from "./tasks";
+import auditLogsRouter from "./auditLogs";
 
 const router: IRouter = Router();
 
@@ -50,5 +52,7 @@ router.use("/dev-support", devSupportRouter);
 router.use("/attendance", attendanceRouter);
 router.use("/branches", branchesRouter);
 router.use("/leave", leaveRouter);
+router.use("/tasks", tasksRouter);
+router.use("/audit-logs", auditLogsRouter);
 
 export default router;

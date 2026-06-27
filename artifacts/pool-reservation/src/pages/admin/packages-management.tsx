@@ -14,10 +14,11 @@ import {
 import { Plus, Pencil, Crown, Calendar, Percent, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-header";
+import { ImageUpload } from "@/components/image-upload";
 
-type Package = { id: number; name: string; nameEn: string; description?: string; price: number; durationDays: number; benefits?: string; bookingDiscount: number; maxBookingsPerMonth?: number; isActive: boolean; sortOrder: number };
+type Package = { id: number; name: string; nameEn: string; description?: string; imageUrl?: string | null; price: number; durationDays: number; benefits?: string; bookingDiscount: number; maxBookingsPerMonth?: number; isActive: boolean; sortOrder: number };
 
-const empty = (): Omit<Package, "id"> => ({ name: "", nameEn: "", description: "", price: 0, durationDays: 30, benefits: "", bookingDiscount: 0, maxBookingsPerMonth: undefined, isActive: true, sortOrder: 0 });
+const empty = (): Omit<Package, "id"> => ({ name: "", nameEn: "", description: "", imageUrl: null, price: 0, durationDays: 30, benefits: "", bookingDiscount: 0, maxBookingsPerMonth: undefined, isActive: true, sortOrder: 0 });
 
 export const AdminPackagesManagement: FC = () => {
   const { toast } = useToast();
@@ -111,7 +112,16 @@ export const AdminPackagesManagement: FC = () => {
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {packages.map(pkg => (
-            <Card key={pkg.id} className={!pkg.isActive ? "opacity-60" : ""}>
+            <Card key={pkg.id} className={`overflow-hidden ${!pkg.isActive ? "opacity-60" : ""}`}>
+              {pkg.imageUrl ? (
+                <div className="aspect-[16/9] bg-muted">
+                  <img src={pkg.imageUrl} alt={pkg.name} className="h-full w-full object-cover" />
+                </div>
+              ) : (
+                <div className="aspect-[16/9] bg-gradient-to-br from-amber-100 to-cyan-100 dark:from-amber-950/30 dark:to-cyan-950/30 flex items-center justify-center">
+                  <Crown className="w-10 h-10 text-amber-500/70" />
+                </div>
+              )}
               <CardContent className="p-5 space-y-3">
                 <div className="flex items-start justify-between">
                   <div>
@@ -143,6 +153,16 @@ export const AdminPackagesManagement: FC = () => {
             {([["name", "ชื่อ (ภาษาไทย)"], ["nameEn", "ชื่อ (English)"]] as const).map(([k, label]) => (
               <div key={k}><Label>{label}</Label><Input value={form[k] as string} onChange={f(k)} className="mt-1" /></div>
             ))}
+            <div>
+              <Label>รูปภาพแพ็คเกจ</Label>
+              <ImageUpload
+                value={form.imageUrl}
+                onChange={(imageUrl) => setForm(prev => ({ ...prev, imageUrl }))}
+                shape="wide"
+                maxMb={4}
+                className="mt-1"
+              />
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div><Label>ราคา (บาท)</Label><Input type="number" value={form.price} onChange={f("price")} className="mt-1" /></div>
               <div><Label>ระยะเวลา (วัน)</Label><Input type="number" value={form.durationDays} onChange={f("durationDays")} className="mt-1" /></div>

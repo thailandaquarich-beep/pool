@@ -1,6 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { db, instructorsTable, reservationsTable, instructorAvailabilityTable, usersTable } from "@workspace/db";
+import { db, instructorsTable, reservationsTable, instructorAvailabilityTable, usersTable, settingsTable } from "@workspace/db";
 import { eq, ilike, or, sql, and, inArray, isNotNull, asc, gte, lte, ne } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth.js";
 import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
@@ -13,6 +13,74 @@ const availOrder = [
   asc(instructorAvailabilityTable.kind), asc(instructorAvailabilityTable.dayOfWeek),
   asc(instructorAvailabilityTable.date), asc(instructorAvailabilityTable.startTime),
 ] as const;
+
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const DEFAULT_INSTRUCTOR_MAX_PEOPLE_PER_SLOT = 5;
+const INSTRUCTOR_MAX_PEOPLE_PER_SLOT = 99;
+const bkkDay = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" });
+
+function timeMinutes(value: string) {
+  const [hour, minute] = value.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function minutesToTime(value: number) {
+  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+}
+
+async function getSettings(branchId: number) {
+  const rows = await db.select().from(settingsTable).where(eq(settingsTable.branchId, branchId)).limit(1);
+  if (rows.length > 0) return rows[0];
+  const [created] = await db.insert(settingsTable).values({ branchId }).returning();
+  return created;
+}
+
+function validateAvailability(input: any): string | null {
+  if (input.kind !== "weekly" && input.kind !== "date") return "kind must be weekly|date";
+  if (!TIME_RE.test(String(input.startTime || "")) || !TIME_RE.test(String(input.endTime || "")))
+    return "กรุณาระบุเวลาในรูปแบบ HH:MM";
+  if (timeMinutes(input.startTime) >= timeMinutes(input.endTime)) return "เวลาเริ่มต้องก่อนเวลาสิ้นสุด";
+  if (input.kind === "weekly" && (!Number.isInteger(Number(input.dayOfWeek)) || Number(input.dayOfWeek) < 0 || Number(input.dayOfWeek) > 6))
+    return "dayOfWeek (0-6) required for weekly";
+  if (input.kind === "date") {
+    if (!DATE_RE.test(String(input.date || ""))) return "กรุณาระบุวันที่ให้ถูกต้อง";
+    if (String(input.date) < bkkDay.format(new Date())) return "ไม่สามารถลงตารางย้อนหลังได้";
+  }
+  return null;
+}
+
+function parseMaxPeople(value: unknown, fallback = DEFAULT_INSTRUCTOR_MAX_PEOPLE_PER_SLOT) {
+  const n = value === undefined || value === null || value === "" ? fallback : Number(value);
+  if (!Number.isInteger(n) || n < 0 || n > INSTRUCTOR_MAX_PEOPLE_PER_SLOT) return null;
+  return n;
+}
+
+function availabilityOverlaps(a: any, b: any) {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "weekly" && Number(a.dayOfWeek) !== Number(b.dayOfWeek)) return false;
+  if (a.kind === "date" && String(a.date) !== String(b.date)) return false;
+  return timeMinutes(a.startTime) < timeMinutes(b.endTime) && timeMinutes(a.endTime) > timeMinutes(b.startTime);
+}
+
+function instructorCapacityForSlot(rows: (typeof instructorAvailabilityTable.$inferSelect)[], date: string, startTime: string, endTime: string) {
+  const dayOfWeek = new Date(`${date}T00:00:00Z`).getUTCDay();
+  const applies = (row: typeof instructorAvailabilityTable.$inferSelect) =>
+    (row.kind === "date" && row.date === date) || (row.kind === "weekly" && row.dayOfWeek === dayOfWeek);
+  const covers = (row: typeof instructorAvailabilityTable.$inferSelect) =>
+    timeMinutes(row.startTime) <= timeMinutes(startTime) && timeMinutes(row.endTime) >= timeMinutes(endTime);
+  const overlaps = (row: typeof instructorAvailabilityTable.$inferSelect) =>
+    timeMinutes(row.startTime) < timeMinutes(endTime) && timeMinutes(row.endTime) > timeMinutes(startTime);
+  const relevant = rows.filter(applies);
+  if (relevant.some((row) => !row.isAvailable && overlaps(row))) return null;
+  const available = relevant.filter((row) => row.isAvailable && covers(row));
+  if (!available.length) return null;
+  return Math.max(...available.map((row) => row.maxPeople ?? DEFAULT_INSTRUCTOR_MAX_PEOPLE_PER_SLOT));
+}
+
+function isInstructorAvailable(rows: (typeof instructorAvailabilityTable.$inferSelect)[], date: string, startTime: string, endTime: string) {
+  return instructorCapacityForSlot(rows, date, startTime, endTime) != null;
+}
 
 async function instructorForUser(userId: number) {
   const [inst] = await db.select().from(instructorsTable).where(eq(instructorsTable.userId, userId)).limit(1);
@@ -45,7 +113,7 @@ async function ensureInstructorForUser(userId: number) {
   const [created] = await db.insert(instructorsTable).values({
     firstName: u.firstName, lastName: u.lastName, phone: u.phone ?? "-",
     email: u.email ?? `instructor-${userId}@aquarich.local`,
-    specialty: "ครูฝึก", status: "active", userId,
+    specialty: "ครูฝึก", status: "active", userId, branchId: u.branchId ?? 1,
   }).returning();
   return created;
 }
@@ -64,7 +132,33 @@ router.get("/", authenticate, attachBranch, async (req, res) => {
     );
 
     const instructors = await db.select().from(instructorsTable).where(where).orderBy(instructorsTable.firstName);
-    return res.json(instructors);
+    const date = String(req.query.date || "");
+    const startTime = String(req.query.startTime || "");
+    const endTime = String(req.query.endTime || "");
+    if (!date && !startTime && !endTime) return res.json(instructors);
+    if (!DATE_RE.test(date) || !TIME_RE.test(startTime) || !TIME_RE.test(endTime) || timeMinutes(startTime) >= timeMinutes(endTime))
+      return res.status(400).json({ error: "date, startTime และ endTime ไม่ถูกต้อง" });
+    if (!instructors.length) return res.json([]);
+    const rows = await db.select().from(instructorAvailabilityTable)
+      .where(inArray(instructorAvailabilityTable.instructorId, instructors.map((i) => i.id)));
+    const byInstructor = new Map<number, typeof rows>();
+    for (const row of rows) byInstructor.set(row.instructorId, [...(byInstructor.get(row.instructorId) || []), row]);
+    const reservations = await db.select().from(reservationsTable).where(and(
+      eq(reservationsTable.date, date),
+      inArray(reservationsTable.status, ["confirmed", "pending"]),
+      isNotNull(reservationsTable.instructorId),
+      branchEq(req, reservationsTable.branchId),
+    ));
+    const bookedByInstructor = new Map<number, number>();
+    for (const row of reservations) {
+      if (row.instructorId == null) continue;
+      if (!(timeMinutes(startTime) < timeMinutes(row.endTime) && timeMinutes(endTime) > timeMinutes(row.startTime))) continue;
+      bookedByInstructor.set(row.instructorId, (bookedByInstructor.get(row.instructorId) || 0) + row.numberOfPeople);
+    }
+    return res.json(instructors.filter((i) => {
+      const capacity = instructorCapacityForSlot(byInstructor.get(i.id) || [], date, startTime, endTime);
+      return capacity != null && (bookedByInstructor.get(i.id) || 0) < capacity;
+    }));
   } catch {
     return res.status(500).json({ error: "Failed to list instructors" });
   }
@@ -99,7 +193,7 @@ router.get("/public", async (_req, res) => {
 // "who is teaching today" view.
 router.get("/today", authenticate, async (req, res) => {
   try {
-    const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+    const date = (req.query.date as string) || bkkDay.format(new Date());
 
     const rows = await db
       .select()
@@ -148,6 +242,101 @@ router.get("/today", authenticate, async (req, res) => {
   }
 });
 
+// GET /instructors/teaching?date=YYYY-MM-DD — active instructors and the teaching
+// slots they published for that date. Used by the member booking page so members
+// choose a teacher first, then pick from that teacher's available teaching times.
+router.get("/teaching", authenticate, attachBranch, async (req, res) => {
+  try {
+    const date = String(req.query.date || "");
+    if (!DATE_RE.test(date)) return res.status(400).json({ error: "วันที่ไม่ถูกต้อง" });
+
+    const settings = await getSettings(newRowBranch(req));
+
+    const instructors = await db
+      .select()
+      .from(instructorsTable)
+      .where(and(
+        eq(instructorsTable.status, "active"),
+        branchEq(req, instructorsTable.branchId),
+      ))
+      .orderBy(instructorsTable.firstName);
+    if (!instructors.length) return res.json([]);
+
+    const dayOfWeek = new Date(`${date}T00:00:00Z`).getUTCDay();
+    const rows = await db
+      .select()
+      .from(instructorAvailabilityTable)
+      .where(inArray(instructorAvailabilityTable.instructorId, instructors.map((i) => i.id)))
+      .orderBy(...availOrder);
+
+    const reservations = await db.select().from(reservationsTable).where(and(
+      eq(reservationsTable.date, date),
+      inArray(reservationsTable.status, ["confirmed", "pending"]),
+      isNotNull(reservationsTable.instructorId),
+      branchEq(req, reservationsTable.branchId),
+    ));
+
+    const applies = (row: typeof instructorAvailabilityTable.$inferSelect) =>
+      (row.kind === "date" && row.date === date) || (row.kind === "weekly" && row.dayOfWeek === dayOfWeek);
+    const rowCovers = (row: typeof instructorAvailabilityTable.$inferSelect, startTime: string, endTime: string) =>
+      timeMinutes(row.startTime) <= timeMinutes(startTime) && timeMinutes(row.endTime) >= timeMinutes(endTime);
+    const rowOverlaps = (row: typeof instructorAvailabilityTable.$inferSelect, startTime: string, endTime: string) =>
+      timeMinutes(row.startTime) < timeMinutes(endTime) && timeMinutes(row.endTime) > timeMinutes(startTime);
+    const reservationOverlaps = (row: typeof reservationsTable.$inferSelect, startTime: string, endTime: string) =>
+      timeMinutes(startTime) < timeMinutes(row.endTime) && timeMinutes(endTime) > timeMinutes(row.startTime);
+
+    const result = instructors.map((inst) => {
+      const relevant = rows.filter((row) => row.instructorId === inst.id && applies(row));
+      const blocked = relevant.filter((row) => !row.isAvailable);
+      const slots = [];
+      const openMins = timeMinutes(settings.openTime);
+      const closeMins = timeMinutes(settings.closeTime);
+      const duration = settings.slotDurationMinutes;
+
+      for (let start = openMins; start + duration <= closeMins; start += duration) {
+        const startTime = minutesToTime(start);
+        const endTime = minutesToTime(start + duration);
+        const cover = relevant.find((row) => row.isAvailable && rowCovers(row, startTime, endTime));
+        if (!cover) continue;
+        if (blocked.some((row) => rowOverlaps(row, startTime, endTime))) continue;
+
+        const bookedPeople = reservations
+          .filter((r) => r.instructorId === inst.id && reservationOverlaps(r, startTime, endTime))
+          .reduce((sum, r) => sum + r.numberOfPeople, 0);
+        const maxPeople = cover.maxPeople ?? DEFAULT_INSTRUCTOR_MAX_PEOPLE_PER_SLOT;
+        const remainingPeople = Math.max(0, maxPeople - bookedPeople);
+        if (remainingPeople <= 0) continue;
+
+        slots.push({
+          id: cover.id,
+          kind: cover.kind,
+          dayOfWeek: cover.dayOfWeek,
+          date: cover.date,
+          startTime,
+          endTime,
+          note: cover.note,
+          bookedPeople,
+          maxPeople,
+          remainingPeople,
+        });
+      }
+      return {
+        id: inst.id,
+        firstName: inst.firstName,
+        lastName: inst.lastName,
+        specialty: inst.specialty,
+        experience: inst.experience,
+        profileImageUrl: inst.profileImageUrl,
+        slots,
+      };
+    }).filter((inst) => inst.slots.length > 0);
+
+    return res.json(result);
+  } catch {
+    return res.status(500).json({ error: "Failed to list teaching instructors" });
+  }
+});
+
 // ---- instructor self-service (role: instructor) — MUST be before "/:id" ----
 
 // GET /instructors/me — logged-in instructor's own profile
@@ -166,7 +355,7 @@ router.get("/me/stats", authenticate, async (req, res) => {
   try {
     const inst = await ensureInstructorForUser(req.user!.userId);
     if (!inst) return res.status(404).json({ error: "No instructor profile" });
-    const today = new Date().toISOString().slice(0, 10);
+    const today = bkkDay.format(new Date());
     const monthStart = today.slice(0, 8) + "01";
     const taught = and(
       eq(reservationsTable.instructorId, inst.id),
@@ -186,7 +375,7 @@ router.get("/me/bookings", authenticate, async (req, res) => {
   try {
     const inst = await ensureInstructorForUser(req.user!.userId);
     if (!inst) return res.status(404).json({ error: "No instructor profile" });
-    const today = new Date().toISOString().slice(0, 10);
+    const today = bkkDay.format(new Date());
     const rows = await db
       .select({
         id: reservationsTable.id, date: reservationsTable.date,
@@ -220,8 +409,46 @@ router.patch("/me/bookings/:id", authenticate, async (req, res) => {
     if (!existing) return res.status(404).json({ error: "Reservation not found" });
     if (existing.instructorId !== inst.id) return res.status(403).json({ error: "คิวนี้ไม่ได้จองกับคุณ" });
 
-    const status = req.body?.status;
-    if (status !== "confirmed" && status !== "cancelled") return res.status(400).json({ error: "status must be confirmed|cancelled" });
+    const status = req.body?.status as "confirmed" | "cancelled" | undefined;
+    if (status !== undefined && status !== "confirmed" && status !== "cancelled") return res.status(400).json({ error: "status must be confirmed|cancelled" });
+    const wantsReschedule = req.body?.date !== undefined || req.body?.startTime !== undefined || req.body?.endTime !== undefined;
+    if (!status && !wantsReschedule) return res.status(400).json({ error: "ไม่มีข้อมูลที่ต้องการแก้ไข" });
+
+    const nextDate = wantsReschedule ? String(req.body.date || "") : existing.date;
+    const nextStart = wantsReschedule ? String(req.body.startTime || "") : existing.startTime;
+    const nextEnd = wantsReschedule ? String(req.body.endTime || "") : existing.endTime;
+    if (wantsReschedule) {
+      if (existing.status === "cancelled") return res.status(409).json({ error: "คิวนี้ถูกยกเลิกแล้ว" });
+      if (!DATE_RE.test(nextDate) || nextDate < bkkDay.format(new Date())) return res.status(400).json({ error: "วันที่ใหม่ไม่ถูกต้องหรือผ่านมาแล้ว" });
+      if (!TIME_RE.test(nextStart) || !TIME_RE.test(nextEnd) || timeMinutes(nextStart) >= timeMinutes(nextEnd))
+        return res.status(400).json({ error: "ช่วงเวลาใหม่ไม่ถูกต้อง" });
+      const [settings] = await db.select().from(settingsTable)
+        .where(eq(settingsTable.branchId, existing.branchId ?? 1)).limit(1);
+      if (settings) {
+        const open = timeMinutes(settings.openTime), close = timeMinutes(settings.closeTime);
+        const start = timeMinutes(nextStart), end = timeMinutes(nextEnd);
+        if (start < open || end > close || end - start !== settings.slotDurationMinutes || (start - open) % settings.slotDurationMinutes !== 0)
+          return res.status(400).json({ error: "เวลาใหม่ไม่ตรงกับรอบเปิดให้จอง" });
+        const max = new Date(); max.setDate(max.getDate() + settings.maxAdvanceDays);
+        if (nextDate > bkkDay.format(max)) return res.status(400).json({ error: `เปลี่ยนคิวล่วงหน้าได้ไม่เกิน ${settings.maxAdvanceDays} วัน` });
+        const others = await db.select().from(reservationsTable).where(and(
+          eq(reservationsTable.date, nextDate), inArray(reservationsTable.status, ["confirmed", "pending"]),
+          eq(reservationsTable.branchId, existing.branchId ?? 1),
+        ));
+        const overlapping = others.filter((row) => row.id !== id && timeMinutes(nextStart) < timeMinutes(row.endTime) && timeMinutes(nextEnd) > timeMinutes(row.startTime));
+        const instructorOccupied = overlapping
+          .filter((row) => row.instructorId === inst.id)
+          .reduce((sum, row) => sum + row.numberOfPeople, 0);
+        const availabilityRows = await db.select().from(instructorAvailabilityTable).where(eq(instructorAvailabilityTable.instructorId, inst.id));
+        const instructorCapacity = instructorCapacityForSlot(availabilityRows, nextDate, nextStart, nextEnd);
+        if (instructorCapacity == null) return res.status(409).json({ error: "ครูฝึกไม่ได้ลงเวลาว่างในรอบใหม่นี้" });
+        if (instructorOccupied + existing.numberOfPeople > instructorCapacity)
+          return res.status(409).json({ error: `ครูฝึกรับสอนได้ไม่เกิน ${instructorCapacity} คนต่อรอบ ช่วงเวลานี้เหลือรับได้ ${Math.max(0, instructorCapacity - instructorOccupied)} คน` });
+      }
+      // Rescheduling an existing appointment is an explicit commitment by the
+      // instructor, so it does not require a separate availability row first.
+      // Availability remains the gate for NEW customer bookings only.
+    }
 
     let remainingAfter: number | null = null;
     try {
@@ -233,9 +460,11 @@ router.patch("/me/bookings/:id", authenticate, async (req, res) => {
         if (!fresh) return null;
         const confirming = status === "confirmed" && fresh.status !== "confirmed";
         const cancelling = status === "cancelled" && fresh.status !== "cancelled";
-        if (!confirming && !cancelling) return fresh; // already in the requested state — no-op
+        if (!confirming && !cancelling && !wantsReschedule) return fresh; // already in the requested state — no-op
 
-        const updates: Partial<typeof reservationsTable.$inferInsert> = { status };
+        const updates: Partial<typeof reservationsTable.$inferInsert> = {};
+        if (status) updates.status = status;
+        if (wantsReschedule) { updates.date = nextDate; updates.startTime = nextStart; updates.endTime = nextEnd; }
         // Deduct once on confirm (guarded by memberPackageId so it can't double-charge).
         if (confirming && !fresh.memberPackageId) {
           const consumed = await consumeUse(tx, fresh.userId, { source: "booking", reservationId: id, note: `ครูฝึกยืนยัน ${fresh.date} ${fresh.startTime}-${fresh.endTime}` });
@@ -271,20 +500,73 @@ router.post("/me/availability", authenticate, async (req, res) => {
   try {
     const inst = await ensureInstructorForUser(req.user!.userId);
     if (!inst) return res.status(404).json({ error: "No instructor profile" });
-    const { kind, dayOfWeek, date, startTime, endTime, note, isAvailable } = req.body;
-    if (kind !== "weekly" && kind !== "date") return res.status(400).json({ error: "kind must be weekly|date" });
-    if (!startTime || !endTime) return res.status(400).json({ error: "startTime/endTime required" });
-    if (kind === "weekly" && (dayOfWeek == null || dayOfWeek < 0 || dayOfWeek > 6))
-      return res.status(400).json({ error: "dayOfWeek (0-6) required for weekly" });
-    if (kind === "date" && !date) return res.status(400).json({ error: "date required for kind=date" });
+    const { kind, dayOfWeek, date, startTime, endTime, note, isAvailable, maxPeople } = req.body;
+    const validationError = validateAvailability({ kind, dayOfWeek, date, startTime, endTime });
+    if (validationError) return res.status(400).json({ error: validationError });
+    const parsedMaxPeople = parseMaxPeople(maxPeople);
+    if (parsedMaxPeople == null) return res.status(400).json({ error: `จำนวนผู้เรียนต้องอยู่ระหว่าง 0-${INSTRUCTOR_MAX_PEOPLE_PER_SLOT} คน` });
+    const existing = await db.select().from(instructorAvailabilityTable)
+      .where(eq(instructorAvailabilityTable.instructorId, inst.id));
+    const candidate = { kind, dayOfWeek, date, startTime, endTime };
+    if (existing.some((row) => availabilityOverlaps(row, candidate)))
+      return res.status(409).json({ error: "ช่วงเวลานี้ซ้อนกับตารางที่มีอยู่แล้ว" });
     const [row] = await db.insert(instructorAvailabilityTable).values({
       instructorId: inst.id, kind,
-      dayOfWeek: kind === "weekly" ? dayOfWeek : null,
+      dayOfWeek: kind === "weekly" ? Number(dayOfWeek) : null,
       date: kind === "date" ? date : null,
       startTime, endTime, note: note || null, isAvailable: isAvailable === false ? false : true,
+      maxPeople: parsedMaxPeople,
     }).returning();
     return res.status(201).json(row);
   } catch { return res.status(500).json({ error: "Failed to add availability" }); }
+});
+
+// PATCH /instructors/me/availability/:slotId — edit the instructor's own slot.
+router.patch("/me/availability/:slotId", authenticate, async (req, res) => {
+  try {
+    const inst = await ensureInstructorForUser(req.user!.userId);
+    if (!inst) return res.status(404).json({ error: "No instructor profile" });
+    const slotId = Number(req.params.slotId);
+    if (!Number.isInteger(slotId)) return res.status(400).json({ error: "Invalid slot id" });
+    const [current] = await db.select().from(instructorAvailabilityTable).where(and(
+      eq(instructorAvailabilityTable.id, slotId), eq(instructorAvailabilityTable.instructorId, inst.id),
+    )).limit(1);
+    if (!current) return res.status(404).json({ error: "ไม่พบช่วงเวลานี้" });
+
+    const candidate = {
+      kind: req.body.kind ?? current.kind,
+      dayOfWeek: req.body.dayOfWeek ?? current.dayOfWeek,
+      date: req.body.date ?? current.date,
+      startTime: req.body.startTime ?? current.startTime,
+      endTime: req.body.endTime ?? current.endTime,
+      note: req.body.note !== undefined ? req.body.note : current.note,
+      isAvailable: req.body.isAvailable !== undefined ? Boolean(req.body.isAvailable) : current.isAvailable,
+      maxPeople: req.body.maxPeople ?? current.maxPeople,
+    };
+    const validationError = validateAvailability(candidate);
+    if (validationError) return res.status(400).json({ error: validationError });
+    const parsedMaxPeople = parseMaxPeople(candidate.maxPeople);
+    if (parsedMaxPeople == null) return res.status(400).json({ error: `จำนวนผู้เรียนต้องอยู่ระหว่าง 0-${INSTRUCTOR_MAX_PEOPLE_PER_SLOT} คน` });
+    // Existing availability may overlap on the same weekday (for example when a
+    // teacher extends 17:00-18:00 to 17:00-19:00 while an 18:00-20:00 row exists).
+    // That is safe: these rows advertise availability, not separate bookings.
+    // Availability controls which NEW bookings can select the instructor. Existing
+    // reservations are appointments in their own right and must not prevent the
+    // instructor from changing their future teaching schedule. They stay in the
+    // queue until the instructor explicitly reschedules or cancels each booking.
+
+    const [updated] = await db.update(instructorAvailabilityTable).set({
+      kind: candidate.kind,
+      dayOfWeek: candidate.kind === "weekly" ? Number(candidate.dayOfWeek) : null,
+      date: candidate.kind === "date" ? candidate.date : null,
+      startTime: candidate.startTime,
+      endTime: candidate.endTime,
+      note: candidate.note || null,
+      isAvailable: candidate.isAvailable,
+      maxPeople: parsedMaxPeople,
+    }).where(and(eq(instructorAvailabilityTable.id, slotId), eq(instructorAvailabilityTable.instructorId, inst.id))).returning();
+    return res.json(updated);
+  } catch { return res.status(500).json({ error: "Failed to update availability" }); }
 });
 
 // DELETE /instructors/me/availability/:slotId
@@ -292,9 +574,17 @@ router.delete("/me/availability/:slotId", authenticate, async (req, res) => {
   try {
     const inst = await ensureInstructorForUser(req.user!.userId);
     if (!inst) return res.status(404).json({ error: "No instructor profile" });
-    await db.delete(instructorAvailabilityTable).where(and(
-      eq(instructorAvailabilityTable.id, parseInt(req.params.slotId)),
-      eq(instructorAvailabilityTable.instructorId, inst.id)));
+    const slotId = parseInt(req.params.slotId);
+    const allSlots = await db.select().from(instructorAvailabilityTable)
+      .where(eq(instructorAvailabilityTable.instructorId, inst.id));
+    const current = allSlots.find((row) => row.id === slotId);
+    if (!current) return res.status(404).json({ error: "ไม่พบช่วงเวลานี้" });
+    // Keep existing appointments intact. Removing availability only stops new
+    // customers from choosing this instructor during the removed period.
+    const [deleted] = await db.delete(instructorAvailabilityTable).where(and(
+      eq(instructorAvailabilityTable.id, slotId),
+      eq(instructorAvailabilityTable.instructorId, inst.id))).returning({ id: instructorAvailabilityTable.id });
+    if (!deleted) return res.status(404).json({ error: "ไม่พบช่วงเวลานี้" });
     return res.json({ message: "Deleted" });
   } catch { return res.status(500).json({ error: "Failed to delete" }); }
 });
@@ -306,6 +596,110 @@ router.get("/:id/availability", authenticate, async (req, res) => {
       .where(eq(instructorAvailabilityTable.instructorId, parseInt(req.params.id))).orderBy(...availOrder);
     return res.json(rows);
   } catch { return res.status(500).json({ error: "Failed to list availability" }); }
+});
+
+// POST /instructors/:id/availability — admin creates a teaching slot for an instructor.
+router.post("/:id/availability", authenticate, requireAdmin, attachBranch, async (req, res) => {
+  try {
+    const instructorId = parseInt(req.params.id);
+    const [inst] = await db.select().from(instructorsTable).where(and(
+      eq(instructorsTable.id, instructorId),
+      branchEq(req, instructorsTable.branchId),
+    )).limit(1);
+    if (!inst) return res.status(404).json({ error: "Instructor not found" });
+
+    const { kind, dayOfWeek, date, startTime, endTime, note, isAvailable, maxPeople } = req.body;
+    const validationError = validateAvailability({ kind, dayOfWeek, date, startTime, endTime });
+    if (validationError) return res.status(400).json({ error: validationError });
+    const parsedMaxPeople = parseMaxPeople(maxPeople);
+    if (parsedMaxPeople == null) return res.status(400).json({ error: `จำนวนผู้เรียนต้องอยู่ระหว่าง 0-${INSTRUCTOR_MAX_PEOPLE_PER_SLOT} คน` });
+
+    const [row] = await db.insert(instructorAvailabilityTable).values({
+      instructorId,
+      kind,
+      dayOfWeek: kind === "weekly" ? Number(dayOfWeek) : null,
+      date: kind === "date" ? date : null,
+      startTime,
+      endTime,
+      maxPeople: parsedMaxPeople,
+      note: note || null,
+      isAvailable: isAvailable === false ? false : true,
+    }).returning();
+    return res.status(201).json(row);
+  } catch { return res.status(500).json({ error: "Failed to add availability" }); }
+});
+
+// PATCH /instructors/:id/availability/:slotId — admin edits an instructor teaching slot.
+router.patch("/:id/availability/:slotId", authenticate, requireAdmin, attachBranch, async (req, res) => {
+  try {
+    const instructorId = parseInt(req.params.id);
+    const slotId = Number(req.params.slotId);
+    if (!Number.isInteger(slotId)) return res.status(400).json({ error: "Invalid slot id" });
+
+    const [inst] = await db.select().from(instructorsTable).where(and(
+      eq(instructorsTable.id, instructorId),
+      branchEq(req, instructorsTable.branchId),
+    )).limit(1);
+    if (!inst) return res.status(404).json({ error: "Instructor not found" });
+
+    const [current] = await db.select().from(instructorAvailabilityTable).where(and(
+      eq(instructorAvailabilityTable.id, slotId),
+      eq(instructorAvailabilityTable.instructorId, instructorId),
+    )).limit(1);
+    if (!current) return res.status(404).json({ error: "ไม่พบช่วงเวลานี้" });
+
+    const candidate = {
+      kind: req.body.kind ?? current.kind,
+      dayOfWeek: req.body.dayOfWeek ?? current.dayOfWeek,
+      date: req.body.date ?? current.date,
+      startTime: req.body.startTime ?? current.startTime,
+      endTime: req.body.endTime ?? current.endTime,
+      note: req.body.note !== undefined ? req.body.note : current.note,
+      isAvailable: req.body.isAvailable !== undefined ? Boolean(req.body.isAvailable) : current.isAvailable,
+      maxPeople: req.body.maxPeople ?? current.maxPeople,
+    };
+    const validationError = validateAvailability(candidate);
+    if (validationError) return res.status(400).json({ error: validationError });
+    const parsedMaxPeople = parseMaxPeople(candidate.maxPeople);
+    if (parsedMaxPeople == null) return res.status(400).json({ error: `จำนวนผู้เรียนต้องอยู่ระหว่าง 0-${INSTRUCTOR_MAX_PEOPLE_PER_SLOT} คน` });
+
+    const [updated] = await db.update(instructorAvailabilityTable).set({
+      kind: candidate.kind,
+      dayOfWeek: candidate.kind === "weekly" ? Number(candidate.dayOfWeek) : null,
+      date: candidate.kind === "date" ? candidate.date : null,
+      startTime: candidate.startTime,
+      endTime: candidate.endTime,
+      maxPeople: parsedMaxPeople,
+      note: candidate.note || null,
+      isAvailable: candidate.isAvailable,
+    }).where(and(
+      eq(instructorAvailabilityTable.id, slotId),
+      eq(instructorAvailabilityTable.instructorId, instructorId),
+    )).returning();
+    return res.json(updated);
+  } catch { return res.status(500).json({ error: "Failed to update availability" }); }
+});
+
+// DELETE /instructors/:id/availability/:slotId — admin removes an instructor teaching slot.
+router.delete("/:id/availability/:slotId", authenticate, requireAdmin, attachBranch, async (req, res) => {
+  try {
+    const instructorId = parseInt(req.params.id);
+    const slotId = Number(req.params.slotId);
+    if (!Number.isInteger(slotId)) return res.status(400).json({ error: "Invalid slot id" });
+
+    const [inst] = await db.select().from(instructorsTable).where(and(
+      eq(instructorsTable.id, instructorId),
+      branchEq(req, instructorsTable.branchId),
+    )).limit(1);
+    if (!inst) return res.status(404).json({ error: "Instructor not found" });
+
+    const [deleted] = await db.delete(instructorAvailabilityTable).where(and(
+      eq(instructorAvailabilityTable.id, slotId),
+      eq(instructorAvailabilityTable.instructorId, instructorId),
+    )).returning({ id: instructorAvailabilityTable.id });
+    if (!deleted) return res.status(404).json({ error: "ไม่พบช่วงเวลานี้" });
+    return res.json({ message: "Deleted" });
+  } catch { return res.status(500).json({ error: "Failed to delete" }); }
 });
 
 // GET /instructors/:id
