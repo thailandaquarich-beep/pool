@@ -177,6 +177,7 @@ export const Book: FC = () => {
       quota: number | null;
       used: number;
       remaining: number | null;
+      expired?: boolean;
     }>;
   }>({
     queryKey: ["packages", "my-usage"],
@@ -768,9 +769,9 @@ export const Book: FC = () => {
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div>
-                                <div className="font-semibold">{pkg.name}</div>
-                                <div className="text-xs text-muted-foreground">
-                                  หมดอายุ {new Date(pkg.endDate).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}
+                                <div className="font-semibold">{pkg.name}{pkg.expired && <span className="ml-1.5 text-[10px] font-bold text-rose-500">หมดอายุแล้ว</span>}</div>
+                                <div className={cn("text-xs", pkg.expired ? "text-rose-500" : "text-muted-foreground")}>
+                                  {pkg.expired ? "หมดอายุเมื่อ" : "หมดอายุ"} {new Date(pkg.endDate).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}
                                 </div>
                               </div>
                               {active && <Check className="h-5 w-5 text-primary" />}

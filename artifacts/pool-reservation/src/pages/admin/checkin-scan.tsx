@@ -21,6 +21,7 @@ type LookupData = {
     quota: number | null;
     used: number;
     remaining: number | null;
+    expired?: boolean;
     startDate: string;
     endDate: string;
   }[];
@@ -287,7 +288,7 @@ export function AdminCheckinScan() {
                     const disabled = p.remaining !== null && p.remaining <= 0;
                     return (
                       <option key={p.memberPackageId} value={p.memberPackageId} disabled={disabled}>
-                        {p.name} • คงเหลือ {p.remaining === null ? "ไม่จำกัด" : `${p.remaining} ครั้ง`} • หมดอายุ {new Date(p.endDate).toLocaleDateString("th-TH")}
+                        {p.name} • คงเหลือ {p.remaining === null ? "ไม่จำกัด" : `${p.remaining} ครั้ง`}{p.expired ? " • (หมดอายุแล้ว)" : ` • หมดอายุ ${new Date(p.endDate).toLocaleDateString("th-TH")}`}
                       </option>
                     );
                   })}

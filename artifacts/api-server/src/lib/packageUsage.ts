@@ -9,6 +9,7 @@ export type ActiveUsage = {
   quota: number | null;
   used: number;
   remaining: number | null;
+  expired: boolean;
 };
 
 export class NoQuotaError extends Error {
@@ -19,9 +20,17 @@ export class NoQuotaError extends Error {
 
 type Exec = typeof db | Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
 
-// Active = status "active" AND not past its end date. Soonest-expiring first so we
-// burn down the package that lapses earliest.
-export async function getActiveUsages(exec: Exec, userId: number): Promise<ActiveUsage[]> {
+// Active = status "active". By default only packages that are NOT past their end
+// date are returned (the member-booking rule). Pass { includeExpired: true } for the
+// admin desk flow: a paid session-course (e.g. "10 ครั้ง") that still has uses left
+// must remain deductible by staff even after its date lapses, so the member doesn't
+// lose sessions they already paid for. Each usage carries an `expired` flag so the UI
+// can label it. Soonest-expiring first so we burn down the package that lapses earliest.
+export async function getActiveUsages(
+  exec: Exec,
+  userId: number,
+  opts: { includeExpired?: boolean } = {},
+): Promise<ActiveUsage[]> {
   const now = new Date();
   const rows = await exec
     .select({ mp: memberPackagesTable, pkg: membershipPackagesTable })
@@ -31,17 +40,20 @@ export async function getActiveUsages(exec: Exec, userId: number): Promise<Activ
     .orderBy(asc(memberPackagesTable.endDate));
 
   return rows
-    .filter(({ mp }) => new Date(mp.endDate) > now)
+    .filter(({ mp }) => opts.includeExpired || new Date(mp.endDate) > now)
     .map(({ mp, pkg }) => {
       const quota = pkg.maxBookingsPerMonth ?? null;
       const used = mp.bookingsUsed;
       const remaining = quota === null ? null : Math.max(0, quota - used);
-      return { memberPackage: mp, package: pkg, quota, used, remaining };
+      return { memberPackage: mp, package: pkg, quota, used, remaining, expired: new Date(mp.endDate) <= now };
     });
 }
 
+// The auto-pick used when no specific package is chosen: prefer a non-expired package
+// with uses left; only fall back to an expired-but-unused one if nothing else remains.
 export function pickUsable(usages: ActiveUsage[]): ActiveUsage | null {
-  return usages.find((u) => u.remaining === null || u.remaining > 0) ?? null;
+  const hasUse = (u: ActiveUsage) => u.remaining === null || u.remaining > 0;
+  return usages.find((u) => !u.expired && hasUse(u)) ?? usages.find(hasUse) ?? null;
 }
 
 export async function hasQuota(exec: Exec, userId: number): Promise<boolean> {
@@ -52,9 +64,9 @@ export async function hasQuota(exec: Exec, userId: number): Promise<boolean> {
 export async function consumeUse(
   exec: Exec,
   userId: number,
-  opts: { source: "booking" | "checkin"; reservationId?: number | null; note?: string; memberPackageId?: number | null },
+  opts: { source: "booking" | "checkin"; reservationId?: number | null; note?: string; memberPackageId?: number | null; allowExpired?: boolean },
 ) {
-  const usages = await getActiveUsages(exec, userId);
+  const usages = await getActiveUsages(exec, userId, { includeExpired: opts.allowExpired });
   const usable = opts.memberPackageId
     ? usages.find((u) => u.memberPackage.id === opts.memberPackageId && (u.remaining === null || u.remaining > 0)) ?? null
     : pickUsable(usages);

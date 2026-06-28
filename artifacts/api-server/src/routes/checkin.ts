@@ -65,12 +65,15 @@ router.get("/lookup", authenticate, requireAdmin, attachBranch, async (req, res)
     // Branch-confine the scan: a branch admin can't look up another branch's member.
     const u = await findMemberForCheckin(token, req);
     if (!u) return res.status(404).json({ error: "ไม่พบสมาชิกจากรหัสสมาชิก เบอร์โทร หรือ QR นี้" });
-    const usages = await getActiveUsages(db, u.id);
+    // Admin desk: include expired packages too, so staff can still deduct a paid
+    // session-course that has uses left even after its date lapsed.
+    const usages = await getActiveUsages(db, u.id, { includeExpired: true });
+    const hasUse = (x: typeof usages[number]) => x.remaining === null || x.remaining > 0;
     const usable = pickUsable(usages);
     const hasUnlimited = usages.some((x) => x.remaining === null);
     return res.json({
       user: publicUserCard(u),
-      hasQuota: !!usable,
+      hasQuota: usages.some(hasUse),
       totalRemaining: hasUnlimited ? null : usages.reduce((s, x) => s + (x.remaining ?? 0), 0),
       packageName: usable?.package.name ?? null,
       packages: usages.map((x) => ({
@@ -80,6 +83,7 @@ router.get("/lookup", authenticate, requireAdmin, attachBranch, async (req, res)
         quota: x.quota,
         used: x.used,
         remaining: x.remaining,
+        expired: x.expired,
         startDate: x.memberPackage.startDate.toISOString(),
         endDate: x.memberPackage.endDate.toISOString(),
       })),
@@ -142,7 +146,7 @@ router.post("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
 
     let consumed;
     try {
-      consumed = await db.transaction((tx) => consumeUse(tx, u.id, { source: "checkin", memberPackageId, note: "เช็คอินหน้างาน (สแกน QR)" }));
+      consumed = await db.transaction((tx) => consumeUse(tx, u.id, { source: "checkin", memberPackageId, allowExpired: true, note: "เช็คอินหน้างาน (สแกน QR)" }));
     } catch (err) {
       if (err instanceof NoQuotaError) {
         return res.status(400).json({ error: "สมาชิกไม่มีจำนวนครั้งคงเหลือ", needPackage: true, user: publicUserCard(u) });
