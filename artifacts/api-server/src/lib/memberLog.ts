@@ -55,10 +55,11 @@ export async function writeMemberProfile(u: {
   createdAt?: Date | string | null;
 }): Promise<void> {
   try {
-    const dir = folderFor(u.id);
+    const code = memberCode(u.id, u.phone);
+    const dir = folderFor(u.id, code);
     await fs.mkdir(dir, { recursive: true });
     const profile = {
-      memberCode: memberCode(u.id),
+      memberCode: code,
       userId: u.id,
       firstName: u.firstName,
       lastName: u.lastName,
@@ -88,7 +89,7 @@ export async function initMemberFolder(
   via: "register" | "admin_create" | "instructor_account",
 ): Promise<void> {
   await writeMemberProfile(u);
-  await appendMemberLog({ userId: u.id }, "activity", {
-    action: "account_created", via, memberCode: memberCode(u.id), role: u.role ?? null,
+  await appendMemberLog({ userId: u.id, memberCode: memberCode(u.id, u.phone) }, "activity", {
+    action: "account_created", via, memberCode: memberCode(u.id, u.phone), role: u.role ?? null,
   });
 }

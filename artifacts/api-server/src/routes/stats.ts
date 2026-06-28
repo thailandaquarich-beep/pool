@@ -233,15 +233,16 @@ router.get("/top-users", authenticate, requireAdmin, async (req, res) => {
         firstName: usersTable.firstName,
         lastName: usersTable.lastName,
         houseNumber: usersTable.houseNumber,
+        phone: usersTable.phone,
         reservationCount: sql<number>`count(${reservationsTable.id})::int`,
       })
       .from(usersTable)
       .leftJoin(reservationsTable, eq(reservationsTable.userId, usersTable.id))
-      .groupBy(usersTable.id, usersTable.firstName, usersTable.lastName, usersTable.houseNumber)
+      .groupBy(usersTable.id, usersTable.firstName, usersTable.lastName, usersTable.houseNumber, usersTable.phone)
       .orderBy(sql`count(${reservationsTable.id}) DESC`)
       .limit(10);
 
-    return res.json(rows.map((r) => ({ ...r, memberCode: memberCode(r.id) })));
+    return res.json(rows.map((r) => ({ ...r, memberCode: memberCode(r.id, r.phone) })));
   } catch {
     return res.status(500).json({ error: "Failed to get top users" });
   }

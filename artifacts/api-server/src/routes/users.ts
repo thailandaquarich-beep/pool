@@ -12,7 +12,7 @@ const router = Router();
 
 function formatUser(user: typeof usersTable.$inferSelect) {
   const { passwordHash: _, ...rest } = user;
-  return { ...rest, memberCode: memberCode(user.id), createdAt: rest.createdAt.toISOString() };
+  return { ...rest, memberCode: memberCode(user.id, user.phone), createdAt: rest.createdAt.toISOString() };
 }
 
 // GET /users/me/stats — the signed-in member's own swim activity stats.
@@ -84,7 +84,8 @@ router.get("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
         : undefined
     );
 
-    // Ordered by id ascending so member numbers (ART00001, ART00002, …) appear in order.
+    // Ordered by id ascending so older members remain easy to audit even though
+    // the visible member code now follows the member phone number.
     const users = await db.select().from(usersTable).where(where).orderBy(usersTable.id).limit(limit).offset(offset);
     const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(usersTable).where(where);
 

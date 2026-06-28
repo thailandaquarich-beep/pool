@@ -1,5 +1,6 @@
 import { pgTable, serial, integer, text, date, boolean, timestamp, pgEnum } from "drizzle-orm/pg-core";
 import { instructorsTable } from "./instructors";
+import { membershipPackagesTable } from "./membership_packages";
 
 // "weekly" = recurring on dayOfWeek (0=Sun..6=Sat); "date" = a specific calendar date.
 export const availabilityKindEnum = pgEnum("availability_kind", ["weekly", "date"]);
@@ -13,6 +14,7 @@ export const instructorAvailabilityTable = pgTable("instructor_availability", {
   startTime: text("start_time").notNull(), // "HH:MM"
   endTime: text("end_time").notNull(),
   maxPeople: integer("max_people").notNull().default(5),
+  packageId: integer("package_id").references(() => membershipPackagesTable.id, { onDelete: "set null" }),
   note: text("note"),
   isAvailable: boolean("is_available").notNull().default(true), // false = blocked-out slot
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

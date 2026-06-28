@@ -57,34 +57,42 @@ export const Header: FC = () => {
     setLanguage(language === "th" ? "en" : "th");
   };
 
-  const memberLinks = [
-    { href: "/dashboard", label: t("nav.dashboard"), icon: LayoutDashboard },
-    { href: "/reservations", label: t("nav.reservations"), icon: CalendarDays },
-    { href: "/book", label: t("nav.book"), icon: CalendarPlus },
-    { href: "/instructors", label: "ครูฝึก", icon: GraduationCap },
-    { href: "/membership-card", label: "บัตรสมาชิก", icon: QrCode },
-    { href: "/products", label: "ร้านค้าสโมสร", icon: ShoppingBag },
-    { href: "/my-orders", label: "คำสั่งซื้อของฉัน", icon: Package },
-    { href: "/services", label: "บริการอื่นๆ", icon: Sparkles },
-    { href: "/profile", label: t("nav.profile"), icon: User },
+  const memberGroups = [
+    {
+      title: "เริ่มใช้งาน",
+      links: [
+        { href: "/dashboard", label: "ภาพรวมสมาชิก", icon: LayoutDashboard },
+        { href: "/book", label: "จองคลาส/สระ", icon: CalendarPlus },
+        { href: "/reservations", label: "การจองของฉัน", icon: CalendarDays },
+        { href: "/calendar", label: "ปฏิทินคลาส", icon: Calendar },
+        { href: "/instructors", label: "ครูฝึก", icon: GraduationCap },
+      ],
+    },
+    {
+      title: "สมาชิกและแพ็กเกจ",
+      links: [
+        { href: "/membership-card", label: "บัตรสมาชิก QR", icon: QrCode },
+        { href: "/packages", label: "แพ็กเกจของฉัน", icon: Crown },
+        { href: "/wallet", label: "กระเป๋าเงิน", icon: Wallet },
+      ],
+    },
+    {
+      title: "ร้านค้าและบริการ",
+      links: [
+        { href: "/products", label: "ร้านค้าสโมสร", icon: ShoppingBag },
+        { href: "/my-orders", label: "คำสั่งซื้อของฉัน", icon: Package },
+        { href: "/services", label: "บริการอื่น ๆ", icon: Sparkles },
+      ],
+    },
+    {
+      title: "บัญชีและช่วยเหลือ",
+      links: [
+        { href: "/chat", label: "ติดต่อเรา", icon: MessageCircle },
+        { href: "/profile", label: "โปรไฟล์", icon: User },
+      ],
+    },
   ];
-
-  const adminLinks = [
-    { href: "/admin", label: t("nav.admin.dashboard"), icon: LayoutDashboard },
-    { href: "/admin/reservations", label: t("nav.admin.reservations"), icon: CalendarDays },
-    { href: "/admin/members", label: t("nav.admin.members"), icon: Users },
-    { href: "/admin/facilities", label: t("nav.admin.facilities"), icon: Building2 },
-    { href: "/admin/instructors", label: t("nav.admin.instructors"), icon: GraduationCap },
-    { href: "/admin/checkin", label: "สแกนเช็คอิน", icon: ScanLine },
-    { href: "/admin/products", label: "ผลิตภัณฑ์", icon: ShoppingBag },
-    { href: "/admin/orders", label: "คำสั่งซื้อ", icon: Package },
-    { href: "/admin/ai-chat", label: "วิเคราะห์แชท AI", icon: Bot },
-    { href: "/admin/announcements", label: t("nav.admin.announcements"), icon: Bell },
-    { href: "/admin/help", label: "ศูนย์ช่วยเหลือ", icon: LifeBuoy },
-    { href: "/admin/work-plan", label: "วางแผนงาน", icon: ClipboardList },
-    { href: "/admin/leave", label: "คำขอลาพนักงาน", icon: CalendarOff },
-    { href: "/admin/settings", label: t("nav.admin.settings"), icon: Settings },
-  ];
+  const memberLinks = memberGroups.flatMap((group) => group.links);
 
   const adminGroups = [
     {
@@ -162,7 +170,13 @@ export const Header: FC = () => {
     { href: "/profile", label: t("nav.profile"), icon: User },
   ];
 
-  const links = isAdmin ? adminLinks : isInstructor ? instructorLinks : isStaff ? staffLinks : memberLinks;
+  const mobileGroups = isAdmin
+    ? adminGroups
+    : isInstructor
+      ? [{ title: "งานครูและพนักงาน", links: instructorLinks.slice(0, 4) }, ...memberGroups]
+      : isStaff
+        ? [{ title: "พนักงาน", links: staffLinks }]
+        : memberGroups;
 
   const handleNavClick = () => setOpen(false);
 
@@ -207,7 +221,7 @@ export const Header: FC = () => {
 
             {/* Navigation */}
             <nav className="flex-1 overflow-y-auto p-3 space-y-1">
-              {isAdmin ? adminGroups.map((group) => (
+              {mobileGroups.map((group) => (
                 <div key={group.title} className="space-y-1">
                   <div className="px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
                     {group.title}
@@ -235,28 +249,7 @@ export const Header: FC = () => {
                     );
                   })}
                 </div>
-              )) : links.map((link) => {
-                const isActive = location === link.href;
-                const Icon = link.icon;
-                return (
-                  <Link key={link.href} href={link.href}>
-                    <div
-                      onClick={handleNavClick}
-                      className={cn(
-                        "flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors cursor-pointer",
-                        isActive
-                          ? "bg-primary text-primary-foreground"
-                          : "text-foreground hover:bg-accent hover:text-accent-foreground"
-                      )}
-                      data-testid={`link-mobile-${link.href.replace(/\//g, "-")}`}
-                    >
-                      <Icon className="w-5 h-5 shrink-0" />
-                      <span className="flex-1">{link.label}</span>
-                      {isActive && <ChevronRight className="w-4 h-4 opacity-60" />}
-                    </div>
-                  </Link>
-                );
-              })}
+              ))}
             </nav>
 
             {/* Bottom actions */}

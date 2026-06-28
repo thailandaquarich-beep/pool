@@ -497,7 +497,7 @@ const server = createServer(async (req, res) => {
       const history = cleanHistory(b.history);
       const instant = quickReply(userMsg);
       if (instant) {
-        res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive", ...CORS });
+        res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", connection: "keep-alive", ...CORS });
         res.write(`data: ${JSON.stringify({ t: instant })}\n\ndata: ${JSON.stringify({ done: true })}\n\n`);
         return res.end();
       }
@@ -513,7 +513,7 @@ const server = createServer(async (req, res) => {
       const tone = detectTone(userMsg);
       const responseStyle = toneGuidance(tone);
 
-      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive", ...CORS });
+      res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", connection: "keep-alive", ...CORS });
       const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`);
 
       // ── Phase 1: agentic action (book / navigate) ─────────────────────────

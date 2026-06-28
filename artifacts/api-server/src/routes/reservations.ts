@@ -112,6 +112,19 @@ async function instructorCapacityForSlot(instructorId: number, date: string, sta
   return Math.max(...available.map((row) => row.maxPeople ?? DEFAULT_INSTRUCTOR_MAX_PEOPLE_PER_SLOT));
 }
 
+async function instructorAvailabilityForSlot(instructorId: number, date: string, startTime: string, endTime: string) {
+  const rows = await db.select().from(instructorAvailabilityTable)
+    .where(eq(instructorAvailabilityTable.instructorId, instructorId));
+  const dayOfWeek = new Date(`${date}T00:00:00Z`).getUTCDay();
+  const applies = (row: typeof instructorAvailabilityTable.$inferSelect) =>
+    (row.kind === "date" && row.date === date) || (row.kind === "weekly" && row.dayOfWeek === dayOfWeek);
+  const relevant = rows.filter(applies);
+  if (relevant.some((row) => !row.isAvailable && timesOverlap(startTime, endTime, row.startTime, row.endTime))) return null;
+  return relevant
+    .filter((row) => row.isAvailable && timeToMinutes(row.startTime) <= timeToMinutes(startTime) && timeToMinutes(row.endTime) >= timeToMinutes(endTime))
+    .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "date" ? -1 : 1))[0] ?? null;
+}
+
 async function instructorPeopleInSlot(
   instructorId: number,
   date: string,
@@ -466,6 +479,16 @@ router.post("/", authenticate, attachBranch, async (req, res) => {
       });
     }
 
+    if (instructor) {
+      const teachingSlot = await instructorAvailabilityForSlot(instructor.id, date, startTime, endTime);
+      if (teachingSlot?.packageId && selectedUsage.package.id !== teachingSlot.packageId) {
+        return res.status(400).json({
+          error: "คอร์สที่เลือกไม่ตรงกับคอร์สของช่วงเวลาครู กรุณาเลือกคอร์สที่ถูกต้อง",
+          needPackage: true,
+        });
+      }
+    }
+
     // A use is deducted immediately from the package the member selected. If the
     // booking is still pending, the member may cancel and the use is refunded.
     // Once confirmed, members cannot self-cancel from the API.
@@ -503,14 +526,14 @@ router.post("/", authenticate, attachBranch, async (req, res) => {
     if (autoConfirm) {
       await logUsage({
         userId,
-        memberCode: memberCode(userId),
+        memberCode: memberCode(userId, user?.phone),
         name: user ? `${user.firstName} ${user.lastName}` : undefined,
         source: "booking",
         detail: `จอง (ยืนยันอัตโนมัติ) ${date} ${startTime}-${endTime}`,
       });
     }
 
-    await appendMemberLog({ userId }, "activity", {
+    await appendMemberLog({ userId, memberCode: memberCode(userId, user?.phone) }, "activity", {
       action: "booking", date, startTime, endTime, numberOfPeople: people, status: reservation.status,
     });
 
@@ -648,7 +671,7 @@ router.patch("/:id", authenticate, async (req, res) => {
     if (didConfirm) {
       await logUsage({
         userId: existing.userId,
-        memberCode: memberCode(existing.userId),
+        memberCode: memberCode(existing.userId, user?.phone),
         name: user ? `${user.firstName} ${user.lastName}` : undefined,
         source: "booking",
         detail: `ยืนยันการจอง ${existing.date} ${existing.startTime}-${existing.endTime}`,

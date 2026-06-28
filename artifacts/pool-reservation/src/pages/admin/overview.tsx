@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { downloadCsv, csvStamp } from "@/lib/export-csv";
+import { useToast } from "@/hooks/use-toast";
 import { Building2, CalendarCheck, Download, Gift, Radio, Star, TrendingUp, Users, Wallet } from "lucide-react";
 
 const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -37,6 +38,7 @@ type Totals = {
 };
 
 export const AdminOverview: FC = () => {
+  const { toast } = useToast();
   const token = localStorage.getItem("pool_token");
   const [exporting, setExporting] = useState(false);
   const [reportRange, setReportRange] = useState<"day" | "week" | "month" | "all">("month");
@@ -85,6 +87,9 @@ export const AdminOverview: FC = () => {
           row.description ?? "",
         ]),
       ]);
+      toast({ title: "ดาวน์โหลดรายงานการซื้อแพ็กเกจแล้ว", description: `${data.rows?.length ?? 0} รายการ` });
+    } catch (e: any) {
+      toast({ title: "ดาวน์โหลดรายงานแพ็กเกจไม่สำเร็จ", description: e?.message, variant: "destructive" });
     } finally {
       setExporting(false);
     }

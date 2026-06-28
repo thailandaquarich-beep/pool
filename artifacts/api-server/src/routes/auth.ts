@@ -28,7 +28,7 @@ function loginLimitKey(req: Request): string {
 
 function formatUser(user: typeof usersTable.$inferSelect) {
   const { passwordHash: _, ...rest } = user;
-  return { ...rest, memberCode: memberCode(user.id), createdAt: rest.createdAt.toISOString() };
+  return { ...rest, memberCode: memberCode(user.id, user.phone), createdAt: rest.createdAt.toISOString() };
 }
 
 function otpEmailHtml(code: string): string {

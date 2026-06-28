@@ -28,7 +28,7 @@ type Form = {
 };
 const emptyForm = (): Form => ({ name: "", nameEn: "", category: "", description: "", price: "0", imageUrl: "", stock: "", sortOrder: "0" });
 
-export function AdminProducts() {
+export function AdminProducts({ embedded = false }: { embedded?: boolean } = {}) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const token = localStorage.getItem("pool_token");
@@ -135,18 +135,26 @@ export function AdminProducts() {
   );
 
   return (
-    <div className="p-6 space-y-6">
-      <PageHeader
-        title="จัดการผลิตภัณฑ์"
-        subtitle="สินค้าและบริการที่จำหน่าย"
-        icon={ShoppingBag}
-        gradient="from-fuchsia-400 to-pink-600"
-        actions={
+    <div className={embedded ? "space-y-6" : "p-6 space-y-6"}>
+      {embedded ? (
+        <div className="flex justify-end">
           <Button onClick={() => { setForm(emptyForm()); setAddOpen(true); }} className="gap-2">
             <Plus className="w-4 h-4" /> เพิ่มผลิตภัณฑ์
           </Button>
-        }
-      />
+        </div>
+      ) : (
+        <PageHeader
+          title="จัดการผลิตภัณฑ์"
+          subtitle="สินค้าและบริการที่จำหน่าย"
+          icon={ShoppingBag}
+          gradient="from-fuchsia-400 to-pink-600"
+          actions={
+            <Button onClick={() => { setForm(emptyForm()); setAddOpen(true); }} className="gap-2">
+              <Plus className="w-4 h-4" /> เพิ่มผลิตภัณฑ์
+            </Button>
+          }
+        />
+      )}
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{[1, 2, 3].map(i => <div key={i} className="h-56 rounded-xl bg-muted animate-pulse" />)}</div>

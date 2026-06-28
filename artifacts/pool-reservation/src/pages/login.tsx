@@ -77,7 +77,13 @@ export const Login: FC = () => {
         setLocation(res.user.role === "admin" ? "/admin" : "/dashboard");
       },
       onError: (error: any) => {
-        const errorMessage = error?.message || error?.response?.data?.error || "Login failed. Please try again.";
+        const errorMessage =
+          error?.data?.message ||
+          error?.data?.error ||
+          error?.response?.data?.message ||
+          error?.response?.data?.error ||
+          error?.message ||
+          "Login failed. Please try again.";
         setError(errorMessage);
         toast({ title: "Login Failed", description: errorMessage, variant: "destructive" });
       },

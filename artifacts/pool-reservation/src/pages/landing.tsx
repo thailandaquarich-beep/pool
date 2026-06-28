@@ -1,438 +1,333 @@
-import { FC, useRef, useEffect } from "react";
+import { FC } from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "@/i18n";
 import { Button } from "@/components/ui/button";
-import { BrandMark } from "@/components/brand";
 import {
-  Sparkles, ArrowRight, Globe, Check, Waves, Users, CalendarCheck,
-  GraduationCap, Award, Crown, Clock, MapPin, Layers, ShoppingBag,
-  Megaphone, Pin, ShieldCheck, HeartPulse,
+  ArrowRight,
+  CalendarCheck,
+  Check,
+  Clock,
+  Dumbbell,
+  Globe,
+  HeartPulse,
+  MapPin,
+  Phone,
+  ShieldCheck,
+  Sparkles,
+  UserRoundCheck,
+  Waves,
 } from "lucide-react";
 
-/* ──────────────────────────────────────────────────────────────────────────
-   Aquarich landing — every section below is driven by LIVE data pulled from the
-   public API (no auth). React Query polls on an interval and on window-focus, so
-   whenever an admin edits facilities / packages / instructors / products /
-   announcements in the admin panel, this page reflects it automatically.
-   Public endpoints: /stats/public · /facilities · /packages/public ·
-   /instructors/public · /products · /announcements
-   ────────────────────────────────────────────────────────────────────────── */
-
 const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, "");
+const asset = (path: string) => `${baseUrl}${path}`;
 
-/** Public GET helper — returns parsed JSON, or null on any failure (sections then hide). */
 const getJson = (path: string) => async () => {
   const res = await fetch(`${baseUrl}/api${path}`);
   if (!res.ok) return null;
   return res.json();
 };
 
-const baht = (n: number) => `฿${Number(n || 0).toLocaleString()}`;
+const baht = (n: number) => `฿${Number(n || 0).toLocaleString("th-TH")}`;
 
-/* ---------- types (only the fields the landing renders) ---------- */
-type Stats = { members: number; instructors: number; facilities: number; packages: number; reservations: number };
-type Facility = { id: number; name: string; nameEn: string | null; description: string | null; descriptionEn: string | null; capacity: number; openTime: string; closeTime: string; imageUrl: string | null; price: number | null; lanes: number | null; depth: string | null; location: string | null };
-type Pkg = { id: number; name: string; nameEn: string | null; description: string | null; descriptionEn: string | null; price: number; durationDays: number; benefits: string | null; benefitsEn: string | null; maxBookingsPerMonth: number | null; bookingDiscount: number };
-type Instructor = { id: number; firstName: string; lastName: string; specialty: string; certification: string | null; experience: string | null; biography: string | null; profileImageUrl: string | null };
-type Product = { id: number; name: string; nameEn: string | null; category: string | null; description: string | null; price: number; imageUrl: string | null; stock: number | null };
-type Announcement = { id: number; title: string; titleEn: string | null; content: string; contentEn: string | null; isPinned: boolean; createdAt: string };
-
-/* ═══════════════════════════════ Shared bits ═══════════════════════════════ */
-
-const SectionHeading: FC<{ icon: any; title: string; sub?: string }> = ({ icon: Icon, title, sub }) => (
-  <div className="text-center max-w-2xl mx-auto">
-    <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl icon-tile bg-gold mb-3">
-      <Icon className="w-6 h-6" />
-    </div>
-    <h2 className="text-3xl sm:text-4xl font-display font-extrabold tracking-tight">
-      <span className="text-gradient">{title}</span>
-    </h2>
-    {sub && <p className="mt-3 text-muted-foreground">{sub}</p>}
-    <div className="divider-gold mx-auto mt-5" />
-  </div>
-);
-
-/* ═══════════════════════════ Live data sections ════════════════════════════ */
-
-const FacilitiesSection: FC = () => {
-  const { language } = useTranslation();
-  const { data } = useQuery<Facility[] | null>({ queryKey: ["public", "facilities"], queryFn: getJson("/facilities"), refetchInterval: 20000 });
-  const pick = (th: string, en: string | null) => (language === "en" && en ? en : th);
-  if (!data || data.length === 0) return null;
-  return (
-    <section className="relative z-10 mx-auto max-w-6xl px-4 sm:px-6 py-12 sm:py-16">
-      <SectionHeading icon={Waves} title={language === "en" ? "Our Facilities" : "สิ่งอำนวยความสะดวก"} sub={language === "en" ? "Modern, well-maintained pools and amenities." : "สระว่ายน้ำมาตรฐานและสิ่งอำนวยความสะดวกที่ได้รับการดูแลอย่างดี"} />
-      <div className="mt-10 grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-        {data.map((f, i) => (
-          <div key={f.id} className="group rounded-2xl glass card-lift overflow-hidden animate-rise" style={{ animationDelay: `${i * 70}ms` }}>
-            <div className="relative h-40 bg-brand bg-brand-animated overflow-hidden">
-              {f.imageUrl
-                ? <img src={f.imageUrl} alt={pick(f.name, f.nameEn)} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                : <div className="w-full h-full flex items-center justify-center"><Waves className="w-12 h-12 text-white/80" /></div>}
-              {f.price != null && f.price > 0 && (
-                <span className="absolute top-3 right-3 rounded-full bg-gold text-xs font-bold px-2.5 py-1 shadow">{baht(f.price)}</span>
-              )}
-            </div>
-            <div className="p-5">
-              <h3 className="font-display font-bold text-lg">{pick(f.name, f.nameEn)}</h3>
-              {(f.description || f.descriptionEn) && (
-                <p className="mt-1 text-sm text-muted-foreground line-clamp-2">{pick(f.description || "", f.descriptionEn)}</p>
-              )}
-              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-                <span className="inline-flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-gold" /> {f.openTime}–{f.closeTime}</span>
-                <span className="inline-flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-gold" /> {f.capacity} {language === "en" ? "people" : "คน"}</span>
-                {f.lanes ? <span className="inline-flex items-center gap-1.5"><Layers className="w-3.5 h-3.5 text-gold" /> {f.lanes} {language === "en" ? "lanes" : "เลน"}</span> : null}
-                {f.location ? <span className="inline-flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-gold" /> {f.location}</span> : null}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
+type Pkg = {
+  id: number;
+  name: string;
+  nameEn: string | null;
+  description: string | null;
+  descriptionEn: string | null;
+  price: number;
+  durationDays: number;
 };
 
-const PackagesSection: FC = () => {
-  const { language } = useTranslation();
-  const { data } = useQuery<Pkg[] | null>({ queryKey: ["public", "packages"], queryFn: getJson("/packages/public"), refetchInterval: 20000 });
-  const pick = (th: string, en: string | null) => (language === "en" && en ? en : th);
-  if (!data || data.length === 0) return null;
-  // The middle package gets the "recommended" gold treatment.
-  const featured = Math.min(1, data.length - 1);
-  return (
-    <section className="relative z-10 mx-auto max-w-6xl px-4 sm:px-6 py-12 sm:py-16">
-      <SectionHeading icon={Crown} title={language === "en" ? "Membership Packages" : "แพ็กเกจสมาชิก"} sub={language === "en" ? "Flexible plans designed around your wellness goals." : "แพ็กเกจที่ออกแบบมาเพื่อเป้าหมายสุขภาพของคุณ"} />
-      <div className="mt-10 grid sm:grid-cols-2 lg:grid-cols-3 gap-5 items-stretch">
-        {data.map((p, i) => {
-          const isFeatured = i === featured;
-          const benefits = (pick(p.benefits || "", p.benefitsEn) || "").split(/\r?\n|·|,/).map(s => s.trim()).filter(Boolean).slice(0, 4);
-          return (
-            <div
-              key={p.id}
-              className={`relative rounded-2xl card-lift p-6 animate-rise flex flex-col ${isFeatured ? "bg-brand-rich bg-brand-animated sheen text-white ring-1 ring-[hsl(var(--gold)/0.45)] shadow-2xl shadow-primary/30" : "glass"}`}
-              style={{ animationDelay: `${i * 70}ms` }}
-            >
-              {isFeatured && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-1 rounded-full bg-gold text-xs font-bold px-3 py-1 shadow-lg glow-gold">
-                  <Sparkles className="w-3.5 h-3.5" /> {language === "en" ? "Recommended" : "แนะนำ"}
-                </span>
-              )}
-              <h3 className={`font-display font-bold text-xl ${isFeatured ? "" : ""}`}>{pick(p.name, p.nameEn)}</h3>
-              <div className="mt-2 flex items-end gap-1">
-                <span className={`text-3xl font-display font-extrabold ${isFeatured ? "text-white" : "text-gradient-gold"}`}>{baht(p.price)}</span>
-                <span className={`text-sm mb-1 ${isFeatured ? "text-white/75" : "text-muted-foreground"}`}>/ {p.durationDays} {language === "en" ? "days" : "วัน"}</span>
-              </div>
-              {(p.description || p.descriptionEn) && (
-                <p className={`mt-2 text-sm ${isFeatured ? "text-white/85" : "text-muted-foreground"}`}>{pick(p.description || "", p.descriptionEn)}</p>
-              )}
-              <ul className="mt-4 space-y-2 flex-1">
-                {p.maxBookingsPerMonth != null && (
-                  <li className="flex items-center gap-2 text-sm"><Check className={`w-4 h-4 shrink-0 ${isFeatured ? "text-[hsl(var(--gold-soft))]" : "text-gold"}`} /> {language === "en" ? `Up to ${p.maxBookingsPerMonth} bookings / month` : `จองได้สูงสุด ${p.maxBookingsPerMonth} ครั้ง/เดือน`}</li>
-                )}
-                {p.bookingDiscount > 0 && (
-                  <li className="flex items-center gap-2 text-sm"><Check className={`w-4 h-4 shrink-0 ${isFeatured ? "text-[hsl(var(--gold-soft))]" : "text-gold"}`} /> {language === "en" ? `${p.bookingDiscount}% booking discount` : `ส่วนลดการจอง ${p.bookingDiscount}%`}</li>
-                )}
-                {benefits.map((b, bi) => (
-                  <li key={bi} className="flex items-center gap-2 text-sm"><Check className={`w-4 h-4 shrink-0 ${isFeatured ? "text-[hsl(var(--gold-soft))]" : "text-gold"}`} /> {b}</li>
-                ))}
-              </ul>
-              <Link href="/register" className="mt-5">
-                <Button className={`w-full h-11 rounded-xl font-semibold ${isFeatured ? "bg-white text-primary hover:bg-white/90" : "bg-gradient-to-r from-primary to-cyan-500 text-white shadow-lg shadow-primary/25"}`}>
-                  {language === "en" ? "Get this plan" : "เลือกแพ็กเกจนี้"}
-                </Button>
-              </Link>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
+type Facility = {
+  id: number;
+  name: string;
+  nameEn: string | null;
+  description: string | null;
+  descriptionEn: string | null;
+  imageUrl: string | null;
 };
 
-const InstructorsSection: FC = () => {
-  const { language } = useTranslation();
-  const { data } = useQuery<Instructor[] | null>({ queryKey: ["public", "instructors"], queryFn: getJson("/instructors/public"), refetchInterval: 30000 });
-  if (!data || data.length === 0) return null;
-  const initials = (i: Instructor) => `${i.firstName?.trim()?.[0] || ""}${i.lastName?.trim()?.[0] || ""}`.toUpperCase();
-  return (
-    <section className="relative z-10 mx-auto max-w-6xl px-4 sm:px-6 py-12 sm:py-16">
-      <SectionHeading icon={GraduationCap} title={language === "en" ? "Our Professional Instructors" : "ทีมครูฝึกผู้เชี่ยวชาญ"} sub={language === "en" ? "Certified coaches dedicated to your progress." : "ครูฝึกมืออาชีพที่พร้อมดูแลคุณอย่างใกล้ชิด"} />
-      <div className="mt-10 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5">
-        {data.map((ins, i) => (
-          <div key={ins.id} className="rounded-2xl glass card-lift p-5 text-center animate-rise" style={{ animationDelay: `${i * 60}ms` }}>
-            <div className="relative w-20 h-20 mx-auto">
-              {ins.profileImageUrl
-                ? <img src={ins.profileImageUrl} alt={ins.firstName} className="w-20 h-20 rounded-2xl object-cover ring-1 ring-[hsl(var(--gold)/0.4)]" />
-                : <div className="w-20 h-20 rounded-2xl icon-tile bg-brand flex items-center justify-center text-xl font-display font-bold ring-1 ring-[hsl(var(--gold)/0.4)]">{initials(ins) || <Users className="w-8 h-8" />}</div>}
-              <span className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full bg-gold flex items-center justify-center shadow glow-gold"><Award className="w-4 h-4" /></span>
-            </div>
-            <h3 className="mt-3 font-display font-bold leading-tight">{ins.firstName} {ins.lastName}</h3>
-            <p className="text-xs text-gold font-medium mt-0.5">{ins.specialty}</p>
-            {ins.experience ? <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{ins.experience}</p> : null}
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-};
+const services = [
+  { icon: Waves, th: "สระน้ำเกลือควบคุมอุณหภูมิ", en: "Heated salt pool" },
+  { icon: HeartPulse, th: "ธาราบำบัดและฟื้นฟู", en: "Aqua therapy and recovery" },
+  { icon: Dumbbell, th: "ฟิตเนส คาร์ดิโอ และสตูดิโอ", en: "Fitness, cardio and studio" },
+  { icon: UserRoundCheck, th: "ครูดูแลใกล้ชิดทุกวัย", en: "Coaches for every age" },
+];
 
-const ProductsSection: FC = () => {
-  const { language } = useTranslation();
-  const { data } = useQuery<Product[] | null>({ queryKey: ["public", "products"], queryFn: getJson("/products"), refetchInterval: 20000 });
-  const pick = (th: string, en: string | null) => (language === "en" && en ? en : th);
-  if (!data || data.length === 0) return null;
-  const items = data.slice(0, 8);
-  return (
-    <section className="relative z-10 mx-auto max-w-6xl px-4 sm:px-6 py-12 sm:py-16">
-      <SectionHeading icon={ShoppingBag} title={language === "en" ? "Products & Services" : "สินค้าและบริการ"} sub={language === "en" ? "Quality gear and add-ons for every swimmer." : "อุปกรณ์และบริการคุณภาพสำหรับทุกการว่ายน้ำ"} />
-      <div className="mt-10 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5">
-        {items.map((p, i) => (
-          <div key={p.id} className="group rounded-2xl glass card-lift overflow-hidden animate-rise" style={{ animationDelay: `${i * 55}ms` }}>
-            <div className="relative h-32 bg-brand-soft overflow-hidden flex items-center justify-center">
-              {p.imageUrl
-                ? <img src={p.imageUrl} alt={pick(p.name, p.nameEn)} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                : <ShoppingBag className="w-9 h-9 text-primary/40" />}
-              {p.category ? <span className="absolute top-2 left-2 rounded-full bg-gold-soft text-[10px] font-semibold text-[hsl(var(--gold-deep))] px-2 py-0.5">{p.category}</span> : null}
-            </div>
-            <div className="p-4">
-              <h3 className="font-semibold text-sm leading-tight line-clamp-1">{pick(p.name, p.nameEn)}</h3>
-              <div className="mt-1.5 flex items-center justify-between">
-                <span className="font-display font-bold text-gradient-gold">{baht(p.price)}</span>
-                {p.stock != null && p.stock <= 5 && <span className="text-[10px] text-amber-600 font-medium">{language === "en" ? `${p.stock} left` : `เหลือ ${p.stock}`}</span>}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-};
+const audience = [
+  {
+    image: "/landing/kid_ztP_hq.jpg",
+    th: "เด็กเริ่มว่ายน้ำอย่างมั่นใจ",
+    en: "Kids learn with confidence",
+    textTh: "คลาสว่ายน้ำที่ค่อย ๆ สร้างความคุ้นเคยกับน้ำ พร้อมครูที่ดูแลใกล้ชิด",
+    textEn: "Swimming classes that gently build water confidence with close coaching.",
+  },
+  {
+    image: "/landing/fearwater_maxres.jpg",
+    th: "วัยทำงานฟิตและผ่อนคลาย",
+    en: "Adults stay fit and relaxed",
+    textTh: "ออกกำลังกายในน้ำ ฟิตเนส คาร์ดิโอ และคลาสที่เหมาะกับไลฟ์สไตล์ประจำวัน",
+    textEn: "Water workouts, fitness, cardio and classes that fit daily life.",
+  },
+  {
+    image: "/landing/eed_mD4_hq.jpg",
+    th: "ผู้สูงวัยฟื้นฟูอย่างปลอดภัย",
+    en: "Seniors recover safely",
+    textTh: "ธาราบำบัดและการเคลื่อนไหวในน้ำที่อ่อนโยน เหมาะกับการดูแลสุขภาพระยะยาว",
+    textEn: "Gentle aqua therapy and movement for long-term wellness.",
+  },
+];
 
-const AnnouncementsSection: FC = () => {
-  const { language } = useTranslation();
-  const { data } = useQuery<Announcement[] | null>({ queryKey: ["public", "announcements"], queryFn: getJson("/announcements"), refetchInterval: 20000 });
-  const pick = (th: string, en: string | null) => (language === "en" && en ? en : th);
-  if (!data || data.length === 0) return null;
-  const items = data.slice(0, 4);
-  return (
-    <section className="relative z-10 mx-auto max-w-5xl px-4 sm:px-6 py-12 sm:py-16">
-      <SectionHeading icon={Megaphone} title={language === "en" ? "News & Announcements" : "ข่าวสารและประกาศ"} sub={language === "en" ? "Stay up to date with the latest from Aquarich." : "ติดตามข่าวสารและกิจกรรมล่าสุดจาก Aquarich"} />
-      <div className="mt-10 grid sm:grid-cols-2 gap-5">
-        {items.map((a, i) => (
-          <div key={a.id} className="rounded-2xl glass card-lift p-6 animate-rise" style={{ animationDelay: `${i * 70}ms` }}>
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl icon-tile bg-gold flex items-center justify-center shrink-0">
-                {a.isPinned ? <Pin className="w-5 h-5" /> : <Megaphone className="w-5 h-5" />}
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-display font-bold leading-tight">{pick(a.title, a.titleEn)}</h3>
-                  {a.isPinned && <span className="rounded-full bg-gold-soft text-[10px] font-bold text-[hsl(var(--gold-deep))] px-2 py-0.5">{language === "en" ? "Pinned" : "ปักหมุด"}</span>}
-                </div>
-                <p className="mt-1.5 text-sm text-muted-foreground line-clamp-3">{pick(a.content, a.contentEn)}</p>
-                <p className="mt-2 text-xs text-muted-foreground/70">{new Date(a.createdAt).toLocaleDateString(language === "en" ? "en-GB" : "th-TH", { day: "numeric", month: "short", year: "numeric" })}</p>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-};
-
-/* ═══════════════════════════════ Page ═══════════════════════════════ */
+const fallbackPackages = [
+  { id: 1, name: "คอร์สเด็ก", nameEn: "Kids Course", description: "10 ครั้ง ครั้งละ 1 ชั่วโมง", descriptionEn: "10 sessions, 1 hour each", price: 4500, durationDays: 60 },
+  { id: 2, name: "คอร์สผู้ใหญ่", nameEn: "Adult Course", description: "ดูแลพื้นฐานและเทคนิคให้มั่นใจขึ้น", descriptionEn: "Build technique and confidence", price: 5500, durationDays: 60 },
+  { id: 3, name: "แพ็กเกจครอบครัว", nameEn: "Family Package", description: "เหมาะกับบ้านที่ดูแลสุขภาพไปพร้อมกัน", descriptionEn: "Designed for families growing healthier together", price: 9000, durationDays: 90 },
+];
 
 export const Landing: FC = () => {
   const { language, setLanguage } = useTranslation();
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  // Live hero counts — non-sensitive aggregates, refreshed on an interval.
-  const { data: stats } = useQuery<Stats | null>({ queryKey: ["public", "stats"], queryFn: getJson("/stats/public"), refetchInterval: 20000 });
-
-  // Pointer parallax (desktop / fine-pointer only) — feeds --px/--py to decorative layers.
-  useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    if (window.matchMedia("(pointer: coarse)").matches) return;
-    const el = rootRef.current;
-    if (!el) return;
-    let raf = 0, x = 0, y = 0;
-    const onMove = (e: PointerEvent) => {
-      x = e.clientX / window.innerWidth - 0.5;
-      y = e.clientY / window.innerHeight - 0.5;
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        el.style.setProperty("--px", x.toFixed(3));
-        el.style.setProperty("--py", y.toFixed(3));
-      });
-    };
-    window.addEventListener("pointermove", onMove, { passive: true });
-    return () => { window.removeEventListener("pointermove", onMove); if (raf) cancelAnimationFrame(raf); };
-  }, []);
-
   const en = language === "en";
-  const heroStats = [
-    { icon: Users, v: stats?.members, label: en ? "Members" : "สมาชิก" },
-    { icon: GraduationCap, v: stats?.instructors, label: en ? "Instructors" : "ครูฝึก" },
-    { icon: Waves, v: stats?.facilities, label: en ? "Facilities" : "สิ่งอำนวยความสะดวก" },
-    { icon: CalendarCheck, v: stats?.reservations, label: en ? "Bookings" : "การจองสะสม" },
-  ];
-  const bullets = en
-    ? ["No joining fee", "Cancel anytime", "Thai language ready"]
-    : ["ไม่มีค่าแรกเข้า", "ยกเลิกได้ทุกเมื่อ", "รองรับภาษาไทย"];
+  const pick = (th: string, english?: string | null) => (en && english ? english : th);
+
+  const { data: packages } = useQuery<Pkg[] | null>({
+    queryKey: ["public", "landing", "packages"],
+    queryFn: getJson("/packages/public"),
+    refetchInterval: 30000,
+  });
+
+  const { data: facilities } = useQuery<Facility[] | null>({
+    queryKey: ["public", "landing", "facilities"],
+    queryFn: getJson("/facilities"),
+    refetchInterval: 30000,
+  });
+
+  const shownPackages = packages?.length ? packages.slice(0, 3) : fallbackPackages;
+  const shownFacilities = facilities?.length ? facilities.slice(0, 4) : null;
 
   return (
-    <div ref={rootRef} className="min-h-screen w-full bg-aurora bg-aurora-animated relative overflow-hidden">
-      {/* ===== Parallax decorative blobs ===== */}
-      <div className="pointer-events-none absolute -top-28 -left-24 will-change-transform" style={{ transform: "translate3d(calc(var(--px,0) * 44px), calc(var(--py,0) * 44px), 0)" }}>
-        <div className="w-[28rem] h-[28rem] rounded-full bg-brand-from/25 blur-3xl animate-float" />
-      </div>
-      <div className="pointer-events-none absolute top-1/4 -right-24 will-change-transform" style={{ transform: "translate3d(calc(var(--px,0) * -36px), calc(var(--py,0) * -26px), 0)" }}>
-        <div className="w-[24rem] h-[24rem] rounded-full bg-brand-to/20 blur-3xl animate-float-slow" />
-      </div>
-      {/* warm gold glow — the accent that ties the palette together */}
-      <div className="pointer-events-none absolute top-1/2 right-1/4 will-change-transform" style={{ transform: "translate3d(calc(var(--px,0) * -24px), calc(var(--py,0) * 30px), 0)" }}>
-        <div className="w-72 h-72 rounded-full bg-[hsl(var(--gold)/0.18)] blur-3xl animate-float-slow" />
-      </div>
-
-      {/* ===== Sticky nav ===== */}
-      <header className="sticky top-0 z-30">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6">
-          <nav className="mt-3 flex items-center justify-between gap-3 rounded-2xl glass px-3 sm:px-4 py-2.5 shadow-lg shadow-primary/5">
-            <BrandMark size="sm" tagline />
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <Button variant="ghost" size="sm" className="gap-1.5 rounded-full" onClick={() => setLanguage(en ? "th" : "en")}>
-                <Globe className="w-4 h-4" /> {en ? "ไทย" : "EN"}
-              </Button>
-              <Link href="/login">
-                <Button variant="ghost" size="sm" className="rounded-full hidden sm:inline-flex">{en ? "Sign in" : "เข้าสู่ระบบ"}</Button>
-              </Link>
-              <Link href="/register">
-                <Button size="sm" className="rounded-full bg-gradient-to-r from-primary to-cyan-500 shadow-md shadow-primary/25 hover:shadow-lg hover:shadow-primary/40 transition-all">
-                  {en ? "Sign up" : "สมัครสมาชิก"}
-                </Button>
-              </Link>
+    <div className="min-h-screen bg-[#f5fbff] text-[#183a5a]">
+      <header className="fixed inset-x-0 top-0 z-40 border-b border-white/20 bg-[#f5fbff]/90 backdrop-blur-md">
+        <nav className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          <a href="#top" className="flex items-center gap-3">
+            <img src={asset("/aquarich-logo.png")} alt="Aqua Rich Thailand" className="h-10 w-10 rounded-full object-contain" />
+            <div className="leading-tight">
+              <div className="font-display text-base font-extrabold text-[#183a5a]">Aqua Rich Thailand</div>
+              <div className="text-xs font-medium text-[#57718a]">{en ? "Bangbon Wellness Center" : "ศูนย์ดูแลสุขภาพครบวงจร บางบอน"}</div>
             </div>
-          </nav>
-        </div>
+          </a>
+
+          <div className="hidden items-center gap-6 text-sm font-semibold text-[#31536f] md:flex">
+            <a href="#services" className="hover:text-[#1098d4]">{en ? "Services" : "บริการ"}</a>
+            <a href="#packages" className="hover:text-[#1098d4]">{en ? "Packages" : "แพ็กเกจ"}</a>
+            <a href="#contact" className="hover:text-[#1098d4]">{en ? "Contact" : "ติดต่อ"}</a>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" className="rounded-full" onClick={() => setLanguage(en ? "th" : "en")}>
+              <Globe className="mr-1 h-4 w-4" /> {en ? "TH" : "EN"}
+            </Button>
+            <Link href="/login">
+              <Button variant="outline" size="sm" className="hidden rounded-full border-[#d8e6f0] md:inline-flex">{en ? "Log in" : "เข้าสู่ระบบ"}</Button>
+            </Link>
+            <Link href="/register">
+              <Button size="sm" className="rounded-full bg-[#f2c200] font-bold text-[#183a5a] hover:bg-[#ffd83d] md:hidden">
+                {en ? "Join" : "สมัคร"}
+              </Button>
+            </Link>
+          </div>
+        </nav>
       </header>
 
-      {/* ===== Hero ===== */}
-      <section className="relative z-10 mx-auto max-w-6xl px-4 sm:px-6 pt-12 sm:pt-20 pb-16">
-        <div className="grid lg:grid-cols-2 gap-10 lg:gap-8 items-center">
-          {/* Copy column */}
-          <div className="text-center lg:text-left animate-rise">
-            <div className="inline-flex items-center gap-2 rounded-full bg-gold-soft ring-1 ring-[hsl(var(--gold)/0.35)] px-3.5 py-1.5 text-sm font-semibold text-[hsl(var(--gold-deep))]">
-              <Sparkles className="w-4 h-4 text-gold" /> {en ? "Complete aquatic wellness center" : "ศูนย์ดูแลสุขภาพและกีฬาทางน้ำครบวงจร"}
+      <main id="top">
+        <section className="relative min-h-[92vh] overflow-hidden pt-16 text-white">
+          <img src={asset("/landing/activity_hero.jpg")} alt="Aqua Rich activities" className="absolute inset-0 h-full w-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#102f4b]/90 via-[#102f4b]/64 to-[#102f4b]/20" />
+          <div className="relative mx-auto flex min-h-[calc(92vh-4rem)] max-w-7xl items-center px-4 py-16 sm:px-6 lg:px-8">
+            <div className="max-w-3xl">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/15 px-4 py-2 text-sm font-semibold backdrop-blur-md">
+                <Sparkles className="h-4 w-4 text-[#f2c200]" />
+                {en ? "More than a swimming pool" : "มากกว่าสระว่ายน้ำ"}
+              </div>
+              <h1 className="mt-6 max-w-3xl font-display text-4xl font-extrabold leading-tight sm:text-5xl lg:text-6xl">
+                {en ? "One place for your whole family's health" : "ศูนย์สุขภาพและการออกกำลังกายครบวงจรสำหรับทุกวัย"}
+              </h1>
+              <p className="mt-5 max-w-2xl text-lg font-medium leading-8 text-white/88">
+                {en
+                  ? "Kids learn to swim, adults stay fit, and seniors recover safely. Aqua Rich brings warm care, real facilities and easy online booking together."
+                  : "เด็กเรียนว่ายน้ำ วัยทำงานออกกำลังกาย ผู้สูงวัยฟื้นฟูสุขภาพ เราดูแลครบในที่เดียว พร้อมระบบจองออนไลน์ที่ใช้งานง่าย"}
+              </p>
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                <Link href="/register">
+                  <Button size="lg" className="h-12 rounded-full bg-[#f2c200] px-7 font-bold text-[#183a5a] hover:bg-[#ffd83d]">
+                    {en ? "Become a member" : "สมัครสมาชิก"} <ArrowRight className="ml-2 h-5 w-5" />
+                  </Button>
+                </Link>
+                <Link href="/login">
+                  <Button size="lg" variant="outline" className="h-12 rounded-full border-white/50 bg-white/10 px-7 font-bold text-white hover:bg-white hover:text-[#183a5a]">
+                    {en ? "Log in" : "เข้าสู่ระบบ"}
+                  </Button>
+                </Link>
+              </div>
             </div>
-            <h1 className="mt-5 text-4xl sm:text-5xl lg:text-6xl font-display font-extrabold tracking-tight leading-[1.08]">
-              <span className="text-gradient-shine">Aquarich</span>
-              <br />
-              <span className="text-foreground">{en ? "complete wellness center" : "ศูนย์ดูแลสุขภาพครบวงจร"}</span>
-            </h1>
-            <div className="divider-gold mt-5 mx-auto lg:mx-0" />
-            <p className="mt-5 text-base sm:text-lg text-muted-foreground max-w-xl mx-auto lg:mx-0">
-              {en
-                ? "Standard swimming pools, expert instructors and membership plans built around your health — backed by a modern booking and management system."
-                : "บริการสระว่ายน้ำมาตรฐาน ครูฝึกผู้เชี่ยวชาญ และแพ็กเกจสมาชิกที่ออกแบบเพื่อสุขภาพที่ดีของคุณ พร้อมระบบจองและจัดการที่ทันสมัย"}
-            </p>
-            <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
-              <Link href="/register">
-                <Button size="lg" className="w-full sm:w-auto h-12 px-7 rounded-xl text-base font-semibold bg-gradient-to-r from-primary to-cyan-500 shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/40 transition-all active:scale-[.98] gap-2">
-                  {en ? "Get started free" : "เริ่มใช้งานฟรี"} <ArrowRight className="w-5 h-5" />
-                </Button>
-              </Link>
-              <Link href="/login">
-                <Button size="lg" variant="outline" className="w-full sm:w-auto h-12 px-7 rounded-xl text-base font-semibold glass border-primary/20 hover:bg-primary/5 transition-all">
-                  {en ? "Sign in" : "เข้าสู่ระบบ"}
-                </Button>
-              </Link>
-            </div>
+          </div>
+        </section>
 
-            {/* live stats */}
-            <div className="mt-10 grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-lg mx-auto lg:mx-0">
-              {heroStats.map((s, i) => (
-                <div key={i} className="rounded-2xl glass px-3 py-3 text-center">
-                  <s.icon className="w-5 h-5 mx-auto text-gold mb-1" />
-                  <div className="text-xl font-display font-bold text-gradient-gold tabular-nums">{s.v != null ? s.v.toLocaleString() : "—"}</div>
-                  <div className="text-[11px] text-muted-foreground mt-0.5 leading-tight">{s.label}</div>
+        <section id="services" className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
+          <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-end">
+            <div>
+              <p className="text-sm font-extrabold uppercase tracking-[0.18em] text-[#1098d4]">{en ? "What we do" : "บริการของเรา"}</p>
+              <h2 className="mt-3 font-display text-3xl font-extrabold text-[#183a5a] sm:text-4xl">
+                {en ? "Care that fits every member of the family" : "ดูแลทุกคนในครอบครัวได้ในที่เดียว"}
+              </h2>
+              <p className="mt-4 leading-7 text-[#57718a]">
+                {en
+                  ? "The brand is warm, practical and real. The page highlights actual place, people and services so customers immediately understand what Aqua Rich offers."
+                  : "หน้าแรกนี้เน้นภาพจริง สถานที่จริง และบริการที่ลูกค้าต้องเห็นทันที เพื่อให้เข้าใจว่า Aqua Rich ไม่ใช่แค่สระว่ายน้ำ แต่เป็นศูนย์ดูแลสุขภาพครบวงจร"}
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {services.map((service) => (
+                <div key={service.th} className="rounded-lg border border-[#dcebf5] bg-white p-5 shadow-sm">
+                  <service.icon className="h-8 w-8 text-[#1098d4]" />
+                  <h3 className="mt-4 font-display text-lg font-bold text-[#183a5a]">{pick(service.th, service.en)}</h3>
                 </div>
               ))}
             </div>
           </div>
+        </section>
 
-          {/* Visual column */}
-          <div className="relative animate-rise" style={{ animationDelay: "120ms" }}>
-            <div
-              className="relative rounded-[2rem] overflow-hidden bg-brand bg-brand-animated sheen ring-1 ring-[hsl(var(--gold)/0.35)] shadow-2xl shadow-primary/30 aspect-[4/5] sm:aspect-[5/4] lg:aspect-[4/5]"
-              style={{ transform: "translate3d(calc(var(--px,0) * -16px), calc(var(--py,0) * -16px), 0)" }}
-            >
-              <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1576013551627-0cc20b96c2a7?q=80&w=1600&auto=format&fit=crop')] bg-cover bg-center opacity-30 mix-blend-overlay" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-white/10" />
-              <div className="absolute inset-0 flex flex-col justify-end p-7 text-white">
-                <Waves className="w-10 h-10 mb-3 drop-shadow-lg" />
-                <div className="text-2xl font-display font-extrabold drop-shadow-lg">Aquarich</div>
-                <div className="text-white/85 mt-1">{en ? "Complete wellness center" : "ศูนย์ดูแลสุขภาพครบวงจร"}</div>
-              </div>
+        <section className="bg-[#e8f4fb] py-16">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="mb-10 text-center">
+              <h2 className="font-display text-3xl font-extrabold text-[#183a5a] sm:text-4xl">{en ? "Built for every age" : "เหมาะกับทุกวัย"}</h2>
+              <p className="mt-3 text-[#57718a]">{en ? "Real services for real families." : "บริการจริงสำหรับครอบครัวจริง"}</p>
             </div>
-
-            {/* floating glass badges */}
-            <div className="absolute -left-3 sm:-left-6 top-10 rounded-2xl glass px-3.5 py-2.5 shadow-xl animate-float will-change-transform">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl icon-tile bg-brand flex items-center justify-center"><ShieldCheck className="w-5 h-5" /></div>
-                <div className="text-sm font-semibold leading-tight">{en ? "Safe & certified" : "ปลอดภัย ได้มาตรฐาน"}</div>
-              </div>
-            </div>
-            <div className="absolute -right-2 sm:-right-5 bottom-12 rounded-2xl glass px-3.5 py-2.5 shadow-xl animate-float-slow will-change-transform">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl icon-tile bg-gold flex items-center justify-center"><HeartPulse className="w-5 h-5" /></div>
-                <div className="text-sm font-semibold leading-tight">{en ? "Wellness first" : "ใส่ใจสุขภาพ"}</div>
-              </div>
+            <div className="grid gap-5 md:grid-cols-3">
+              {audience.map((item) => (
+                <article key={item.th} className="overflow-hidden rounded-lg bg-white shadow-sm">
+                  <img src={asset(item.image)} alt={pick(item.th, item.en)} className="h-56 w-full object-cover" />
+                  <div className="p-5">
+                    <h3 className="font-display text-xl font-bold text-[#183a5a]">{pick(item.th, item.en)}</h3>
+                    <p className="mt-2 leading-7 text-[#57718a]">{pick(item.textTh, item.textEn)}</p>
+                  </div>
+                </article>
+              ))}
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ===== Live data sections (auto-refresh from the admin panel) ===== */}
-      <FacilitiesSection />
-      <PackagesSection />
-      <InstructorsSection />
-      <ProductsSection />
-      <AnnouncementsSection />
+        <section className="mx-auto grid max-w-7xl gap-8 px-4 py-16 sm:px-6 lg:grid-cols-2 lg:px-8 lg:items-center">
+          <div className="grid grid-cols-2 gap-4">
+            <img src={asset("/landing/tripcom_1.webp")} alt="Aqua Rich building" className="h-64 w-full rounded-lg object-cover" />
+            <img src={asset("/landing/walkthrough_maxres.jpg")} alt="Aqua Rich pool" className="mt-10 h-64 w-full rounded-lg object-cover" />
+          </div>
+          <div>
+            <p className="text-sm font-extrabold uppercase tracking-[0.18em] text-[#e0218a]">{en ? "Why Aqua Rich" : "ทำไมต้อง Aqua Rich"}</p>
+            <h2 className="mt-3 font-display text-3xl font-extrabold text-[#183a5a] sm:text-4xl">
+              {en ? "Warm care, clear system, trusted place" : "อบอุ่น ชัดเจน และไว้ใจได้"}
+            </h2>
+            <div className="mt-6 space-y-4">
+              {[
+                en ? "Salt water facilities that are gentle and family-friendly." : "สระน้ำเกลือที่อ่อนโยนและเหมาะกับครอบครัว",
+                en ? "Health-focused programs for kids, working adults and seniors." : "โปรแกรมสุขภาพสำหรับเด็ก วัยทำงาน และผู้สูงวัย",
+                en ? "Online booking, membership cards and package history in one system." : "จองออนไลน์ บัตรสมาชิก และประวัติแพ็กเกจอยู่ในระบบเดียว",
+              ].map((text) => (
+                <div key={text} className="flex gap-3 rounded-lg border border-[#dcebf5] bg-white p-4">
+                  <Check className="mt-0.5 h-5 w-5 shrink-0 text-[#1098d4]" />
+                  <span className="leading-7 text-[#31536f]">{text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
 
-      {/* ===== Final CTA ===== */}
-      <section className="relative z-10 mx-auto max-w-5xl px-4 sm:px-6 py-12 sm:py-20">
-        <div className="relative rounded-[2rem] overflow-hidden bg-brand-rich bg-brand-animated sheen ring-1 ring-[hsl(var(--gold)/0.35)] shadow-2xl shadow-primary/30 px-6 sm:px-12 py-12 sm:py-16 text-center text-white">
-          <div className="pointer-events-none absolute -top-12 -right-10 w-52 h-52 rounded-full bg-[hsl(var(--gold)/0.45)] blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-12 -left-10 w-44 h-44 rounded-full bg-[hsl(var(--gold-soft)/0.30)] blur-3xl" />
-          <h2 className="text-3xl sm:text-4xl font-display font-extrabold drop-shadow-lg">{en ? "Ready to dive in?" : "พร้อมเริ่มดูแลสุขภาพแล้วหรือยัง?"}</h2>
-          <p className="mt-3 text-white/90 text-lg max-w-xl mx-auto">{en ? "Sign up today and start booking right away." : "สมัครสมาชิกวันนี้ แล้วเริ่มจองบริการได้ทันที"}</p>
-          <div className="mt-7 flex justify-center">
+        {shownFacilities && (
+          <section className="bg-[#f8fcff] py-16">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+              <div className="mb-8 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+                <div>
+                  <p className="text-sm font-extrabold uppercase tracking-[0.18em] text-[#1098d4]">{en ? "Live facilities" : "บริการจากระบบ"}</p>
+                  <h2 className="mt-2 font-display text-3xl font-extrabold text-[#183a5a]">{en ? "Updated from admin data" : "ข้อมูลอัปเดตจากแอดมิน"}</h2>
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-4">
+                {shownFacilities.map((item) => (
+                  <article key={item.id} className="rounded-lg border border-[#dcebf5] bg-white p-4 shadow-sm">
+                    {item.imageUrl ? <img src={item.imageUrl} alt={pick(item.name, item.nameEn)} className="mb-4 h-32 w-full rounded-md object-cover" /> : null}
+                    <h3 className="font-bold text-[#183a5a]">{pick(item.name, item.nameEn)}</h3>
+                    {(item.description || item.descriptionEn) && <p className="mt-2 line-clamp-3 text-sm leading-6 text-[#57718a]">{pick(item.description || "", item.descriptionEn)}</p>}
+                  </article>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        <section id="packages" className="bg-[#183a5a] py-16 text-white">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="mb-10 text-center">
+              <p className="text-sm font-extrabold uppercase tracking-[0.18em] text-[#f2c200]">{en ? "Packages" : "แพ็กเกจสมาชิก"}</p>
+              <h2 className="mt-3 font-display text-3xl font-extrabold sm:text-4xl">{en ? "Choose what fits your family" : "เลือกแพ็กเกจที่เหมาะกับครอบครัวคุณ"}</h2>
+            </div>
+            <div className="grid gap-5 md:grid-cols-3">
+              {shownPackages.map((pkg, index) => (
+                <article key={pkg.id} className={`rounded-lg border p-6 ${index === 1 ? "border-[#f2c200] bg-white text-[#183a5a]" : "border-white/18 bg-white/8"}`}>
+                  {index === 1 && <div className="mb-4 inline-flex rounded-full bg-[#f2c200] px-3 py-1 text-xs font-extrabold text-[#183a5a]">{en ? "Recommended" : "แนะนำ"}</div>}
+                  <h3 className="font-display text-xl font-extrabold">{pick(pkg.name, pkg.nameEn)}</h3>
+                  <div className={`mt-3 font-display text-3xl font-extrabold ${index === 1 ? "text-[#1098d4]" : "text-[#f2c200]"}`}>{baht(pkg.price)}</div>
+                  <p className={`mt-3 leading-7 ${index === 1 ? "text-[#57718a]" : "text-white/75"}`}>{pick(pkg.description || `${pkg.durationDays} วัน`, pkg.descriptionEn)}</p>
+                </article>
+              ))}
+            </div>
+            <div className="mt-8 flex justify-center">
+              <Link href="/register">
+                <Button size="lg" className="rounded-full bg-[#f2c200] px-8 font-bold text-[#183a5a] hover:bg-[#ffd83d]">
+                  {en ? "Start membership" : "เริ่มสมัครสมาชิก"}
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        <section id="contact" className="mx-auto grid max-w-7xl gap-8 px-4 py-16 sm:px-6 lg:grid-cols-2 lg:px-8">
+          <div>
+            <p className="text-sm font-extrabold uppercase tracking-[0.18em] text-[#1098d4]">{en ? "Visit us" : "มาหาเรา"}</p>
+            <h2 className="mt-3 font-display text-3xl font-extrabold text-[#183a5a] sm:text-4xl">{en ? "Aqua Rich Thailand, Bangbon" : "Aqua Rich Thailand บางบอน"}</h2>
+            <div className="mt-6 space-y-4 text-[#31536f]">
+              <p className="flex gap-3"><MapPin className="mt-1 h-5 w-5 shrink-0 text-[#1098d4]" /> บางบอน 5 ซอย 18 (เพชรเกษม 81)</p>
+              <p className="flex gap-3"><Clock className="mt-1 h-5 w-5 shrink-0 text-[#1098d4]" /> {en ? "Tue-Sun 9:00-19:00, closed Monday" : "อังคาร-อาทิตย์ 9:00-19:00 ปิดวันจันทร์"}</p>
+              <p className="flex gap-3"><Phone className="mt-1 h-5 w-5 shrink-0 text-[#1098d4]" /> 094-978-2542 · LINE @mjc3249s</p>
+              <p className="flex gap-3"><CalendarCheck className="mt-1 h-5 w-5 shrink-0 text-[#1098d4]" /> {en ? "Book online through the member system." : "จองออนไลน์ผ่านระบบสมาชิกได้ทันที"}</p>
+            </div>
+          </div>
+          <iframe
+            title="Aqua Rich Thailand map"
+            loading="lazy"
+            className="h-[360px] w-full rounded-lg border border-[#dcebf5]"
+            src="https://maps.google.com/maps?q=Aquarich%20Thailand%20Bangbon%205&output=embed"
+          />
+        </section>
+
+        <section className="bg-[#1098d4] px-4 py-14 text-center text-white sm:px-6 lg:px-8">
+          <ShieldCheck className="mx-auto h-10 w-10 text-[#f2c200]" />
+          <h2 className="mx-auto mt-4 max-w-3xl font-display text-3xl font-extrabold sm:text-4xl">
+            {en ? "Ready to care for your whole family?" : "พร้อมเริ่มดูแลสุขภาพทั้งบ้านหรือยัง?"}
+          </h2>
+          <p className="mx-auto mt-3 max-w-2xl text-white/88">{en ? "Create an account and start booking from the same system." : "สมัครสมาชิกแล้วเริ่มจองคลาสผ่านระบบเดียวกันได้เลย"}</p>
+          <div className="mt-7">
             <Link href="/register">
-              <Button size="lg" className="h-12 px-8 rounded-xl text-base font-semibold bg-white text-primary hover:bg-white/90 shadow-xl transition-all active:scale-[.98] gap-2">
-                {en ? "Create a free account" : "สมัครสมาชิกฟรี"} <ArrowRight className="w-5 h-5" />
+              <Button size="lg" className="rounded-full bg-white px-8 font-bold text-[#1098d4] hover:bg-[#eef8ff]">
+                {en ? "Create account" : "สมัครสมาชิก"} <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </Link>
           </div>
-          <div className="mt-7 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-white/85">
-            {bullets.map((b, i) => (
-              <span key={i} className="inline-flex items-center gap-1.5"><Check className="w-4 h-4 text-[hsl(var(--gold-soft))]" /> {b}</span>
-            ))}
-          </div>
-        </div>
-      </section>
+        </section>
+      </main>
 
-      {/* ===== Footer ===== */}
-      <footer className="relative z-10 border-t border-border/60">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <BrandMark size="sm" tagline />
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <Link href="/login" className="hover:text-primary transition-colors">{en ? "Sign in" : "เข้าสู่ระบบ"}</Link>
-            <Link href="/register" className="hover:text-primary transition-colors">{en ? "Sign up" : "สมัครสมาชิก"}</Link>
-          </div>
-          <p className="text-xs text-muted-foreground">© 2026 Aquarich · {en ? "Complete wellness center" : "ศูนย์ดูแลสุขภาพครบวงจร"}</p>
-        </div>
+      <footer className="bg-[#183a5a] px-4 py-8 text-center text-sm text-white/70">
+        © 2026 Aqua Rich Thailand · Bangbon · 094-978-2542 · LINE @mjc3249s
       </footer>
     </div>
   );

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { db, instructorsTable, reservationsTable, instructorAvailabilityTable, usersTable, settingsTable } from "@workspace/db";
+import { db, instructorsTable, reservationsTable, instructorAvailabilityTable, usersTable, settingsTable, membershipPackagesTable } from "@workspace/db";
 import { eq, ilike, or, sql, and, inArray, isNotNull, asc, gte, lte, ne } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth.js";
 import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
@@ -268,6 +268,11 @@ router.get("/teaching", authenticate, attachBranch, async (req, res) => {
       .from(instructorAvailabilityTable)
       .where(inArray(instructorAvailabilityTable.instructorId, instructors.map((i) => i.id)))
       .orderBy(...availOrder);
+    const packageIds = [...new Set(rows.map((row) => row.packageId).filter((id): id is number => id != null))];
+    const packages = packageIds.length
+      ? await db.select().from(membershipPackagesTable).where(inArray(membershipPackagesTable.id, packageIds))
+      : [];
+    const packageById = new Map(packages.map((pkg) => [pkg.id, pkg]));
 
     const reservations = await db.select().from(reservationsTable).where(and(
       eq(reservationsTable.date, date),
@@ -315,6 +320,8 @@ router.get("/teaching", authenticate, attachBranch, async (req, res) => {
           startTime,
           endTime,
           note: cover.note,
+          packageId: cover.packageId,
+          packageName: cover.packageId ? packageById.get(cover.packageId)?.name ?? null : null,
           bookedPeople,
           maxPeople,
           remainingPeople,
@@ -334,6 +341,95 @@ router.get("/teaching", authenticate, attachBranch, async (req, res) => {
     return res.json(result);
   } catch {
     return res.status(500).json({ error: "Failed to list teaching instructors" });
+  }
+});
+
+// GET /instructors/calendar?month=YYYY-MM — month overview for the member calendar.
+// Resolves every active instructor's published availability (weekly recurring +
+// specific-date rows, minus blocked-out windows) onto each calendar day of the
+// month so members can see which teacher is available on which day. Branch-scoped.
+// MUST stay above "/:id".
+router.get("/calendar", authenticate, attachBranch, async (req, res) => {
+  try {
+    const month = String(req.query.month || "");
+    if (!/^\d{4}-\d{2}$/.test(month)) return res.status(400).json({ error: "month ต้องอยู่ในรูปแบบ YYYY-MM" });
+    const [year, mon] = month.split("-").map(Number);
+    if (mon < 1 || mon > 12) return res.status(400).json({ error: "เดือนไม่ถูกต้อง" });
+    const daysInMonth = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+
+    const instructors = await db
+      .select()
+      .from(instructorsTable)
+      .where(and(eq(instructorsTable.status, "active"), branchEq(req, instructorsTable.branchId)))
+      .orderBy(instructorsTable.firstName);
+    if (!instructors.length) return res.json({ month, instructors: [], days: {} });
+
+    const rows = await db
+      .select()
+      .from(instructorAvailabilityTable)
+      .where(inArray(instructorAvailabilityTable.instructorId, instructors.map((i) => i.id)))
+      .orderBy(...availOrder);
+
+    const packageIds = [...new Set(rows.map((row) => row.packageId).filter((id): id is number => id != null))];
+    const packages = packageIds.length
+      ? await db.select().from(membershipPackagesTable).where(inArray(membershipPackagesTable.id, packageIds))
+      : [];
+    const packageById = new Map(packages.map((pkg) => [pkg.id, pkg]));
+
+    const rowsByInstructor = new Map<number, typeof rows>();
+    for (const row of rows) rowsByInstructor.set(row.instructorId, [...(rowsByInstructor.get(row.instructorId) || []), row]);
+
+    const overlaps = (a: typeof rows[number], b: typeof rows[number]) =>
+      timeMinutes(a.startTime) < timeMinutes(b.endTime) && timeMinutes(a.endTime) > timeMinutes(b.startTime);
+
+    const days: Record<string, Array<{
+      instructorId: number; firstName: string; lastName: string; specialty: string | null;
+      startTime: string; endTime: string; note: string | null; maxPeople: number;
+      packageId: number | null; packageName: string | null;
+    }>> = {};
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${month}-${String(d).padStart(2, "0")}`;
+      const dow = new Date(`${dateStr}T00:00:00Z`).getUTCDay();
+      const entries: typeof days[string] = [];
+      for (const inst of instructors) {
+        const relevant = (rowsByInstructor.get(inst.id) || []).filter(
+          (row) => (row.kind === "date" && row.date === dateStr) || (row.kind === "weekly" && row.dayOfWeek === dow),
+        );
+        const blocked = relevant.filter((row) => !row.isAvailable);
+        for (const row of relevant) {
+          if (!row.isAvailable) continue;
+          if (blocked.some((b) => overlaps(b, row))) continue;
+          entries.push({
+            instructorId: inst.id,
+            firstName: inst.firstName,
+            lastName: inst.lastName,
+            specialty: inst.specialty ?? null,
+            startTime: row.startTime,
+            endTime: row.endTime,
+            note: row.note,
+            maxPeople: row.maxPeople ?? DEFAULT_INSTRUCTOR_MAX_PEOPLE_PER_SLOT,
+            packageId: row.packageId,
+            packageName: row.packageId ? packageById.get(row.packageId)?.name ?? null : null,
+          });
+        }
+      }
+      if (entries.length) {
+        entries.sort((a, b) => timeMinutes(a.startTime) - timeMinutes(b.startTime) || a.firstName.localeCompare(b.firstName));
+        days[dateStr] = entries;
+      }
+    }
+
+    return res.json({
+      month,
+      instructors: instructors.map((i) => ({
+        id: i.id, firstName: i.firstName, lastName: i.lastName,
+        specialty: i.specialty ?? null, profileImageUrl: i.profileImageUrl ?? null,
+      })),
+      days,
+    });
+  } catch {
+    return res.status(500).json({ error: "Failed to build instructor calendar" });
   }
 });
 
@@ -500,7 +596,7 @@ router.post("/me/availability", authenticate, async (req, res) => {
   try {
     const inst = await ensureInstructorForUser(req.user!.userId);
     if (!inst) return res.status(404).json({ error: "No instructor profile" });
-    const { kind, dayOfWeek, date, startTime, endTime, note, isAvailable, maxPeople } = req.body;
+    const { kind, dayOfWeek, date, startTime, endTime, note, isAvailable, maxPeople, packageId } = req.body;
     const validationError = validateAvailability({ kind, dayOfWeek, date, startTime, endTime });
     if (validationError) return res.status(400).json({ error: validationError });
     const parsedMaxPeople = parseMaxPeople(maxPeople);
@@ -510,12 +606,22 @@ router.post("/me/availability", authenticate, async (req, res) => {
     const candidate = { kind, dayOfWeek, date, startTime, endTime };
     if (existing.some((row) => availabilityOverlaps(row, candidate)))
       return res.status(409).json({ error: "ช่วงเวลานี้ซ้อนกับตารางที่มีอยู่แล้ว" });
+    const selectedPackageId = packageId == null || packageId === "" ? null : Number(packageId);
+    if (selectedPackageId != null) {
+      const [pkg] = await db.select().from(membershipPackagesTable).where(and(
+        eq(membershipPackagesTable.id, selectedPackageId),
+        branchEq(req, membershipPackagesTable.branchId),
+      )).limit(1);
+      if (!pkg) return res.status(400).json({ error: "Package not found" });
+    }
+
     const [row] = await db.insert(instructorAvailabilityTable).values({
       instructorId: inst.id, kind,
       dayOfWeek: kind === "weekly" ? Number(dayOfWeek) : null,
       date: kind === "date" ? date : null,
       startTime, endTime, note: note || null, isAvailable: isAvailable === false ? false : true,
       maxPeople: parsedMaxPeople,
+      packageId: selectedPackageId,
     }).returning();
     return res.status(201).json(row);
   } catch { return res.status(500).json({ error: "Failed to add availability" }); }
@@ -542,6 +648,7 @@ router.patch("/me/availability/:slotId", authenticate, async (req, res) => {
       note: req.body.note !== undefined ? req.body.note : current.note,
       isAvailable: req.body.isAvailable !== undefined ? Boolean(req.body.isAvailable) : current.isAvailable,
       maxPeople: req.body.maxPeople ?? current.maxPeople,
+      packageId: req.body.packageId !== undefined ? req.body.packageId : current.packageId,
     };
     const validationError = validateAvailability(candidate);
     if (validationError) return res.status(400).json({ error: validationError });
@@ -555,6 +662,15 @@ router.patch("/me/availability/:slotId", authenticate, async (req, res) => {
     // instructor from changing their future teaching schedule. They stay in the
     // queue until the instructor explicitly reschedules or cancels each booking.
 
+    const selectedPackageId = candidate.packageId == null || candidate.packageId === "" ? null : Number(candidate.packageId);
+    if (selectedPackageId != null) {
+      const [pkg] = await db.select().from(membershipPackagesTable).where(and(
+        eq(membershipPackagesTable.id, selectedPackageId),
+        branchEq(req, membershipPackagesTable.branchId),
+      )).limit(1);
+      if (!pkg) return res.status(400).json({ error: "Package not found" });
+    }
+
     const [updated] = await db.update(instructorAvailabilityTable).set({
       kind: candidate.kind,
       dayOfWeek: candidate.kind === "weekly" ? Number(candidate.dayOfWeek) : null,
@@ -564,6 +680,7 @@ router.patch("/me/availability/:slotId", authenticate, async (req, res) => {
       note: candidate.note || null,
       isAvailable: candidate.isAvailable,
       maxPeople: parsedMaxPeople,
+      packageId: selectedPackageId,
     }).where(and(eq(instructorAvailabilityTable.id, slotId), eq(instructorAvailabilityTable.instructorId, inst.id))).returning();
     return res.json(updated);
   } catch { return res.status(500).json({ error: "Failed to update availability" }); }
@@ -608,11 +725,20 @@ router.post("/:id/availability", authenticate, requireAdmin, attachBranch, async
     )).limit(1);
     if (!inst) return res.status(404).json({ error: "Instructor not found" });
 
-    const { kind, dayOfWeek, date, startTime, endTime, note, isAvailable, maxPeople } = req.body;
+    const { kind, dayOfWeek, date, startTime, endTime, note, isAvailable, maxPeople, packageId } = req.body;
     const validationError = validateAvailability({ kind, dayOfWeek, date, startTime, endTime });
     if (validationError) return res.status(400).json({ error: validationError });
     const parsedMaxPeople = parseMaxPeople(maxPeople);
     if (parsedMaxPeople == null) return res.status(400).json({ error: `จำนวนผู้เรียนต้องอยู่ระหว่าง 0-${INSTRUCTOR_MAX_PEOPLE_PER_SLOT} คน` });
+
+    const selectedPackageId = packageId == null || packageId === "" ? null : Number(packageId);
+    if (selectedPackageId != null) {
+      const [pkg] = await db.select().from(membershipPackagesTable).where(and(
+        eq(membershipPackagesTable.id, selectedPackageId),
+        branchEq(req, membershipPackagesTable.branchId),
+      )).limit(1);
+      if (!pkg) return res.status(400).json({ error: "Package not found" });
+    }
 
     const [row] = await db.insert(instructorAvailabilityTable).values({
       instructorId,
@@ -622,6 +748,7 @@ router.post("/:id/availability", authenticate, requireAdmin, attachBranch, async
       startTime,
       endTime,
       maxPeople: parsedMaxPeople,
+      packageId: selectedPackageId,
       note: note || null,
       isAvailable: isAvailable === false ? false : true,
     }).returning();
@@ -657,11 +784,21 @@ router.patch("/:id/availability/:slotId", authenticate, requireAdmin, attachBran
       note: req.body.note !== undefined ? req.body.note : current.note,
       isAvailable: req.body.isAvailable !== undefined ? Boolean(req.body.isAvailable) : current.isAvailable,
       maxPeople: req.body.maxPeople ?? current.maxPeople,
+      packageId: req.body.packageId !== undefined ? req.body.packageId : current.packageId,
     };
     const validationError = validateAvailability(candidate);
     if (validationError) return res.status(400).json({ error: validationError });
     const parsedMaxPeople = parseMaxPeople(candidate.maxPeople);
     if (parsedMaxPeople == null) return res.status(400).json({ error: `จำนวนผู้เรียนต้องอยู่ระหว่าง 0-${INSTRUCTOR_MAX_PEOPLE_PER_SLOT} คน` });
+
+    const selectedPackageId = candidate.packageId == null || candidate.packageId === "" ? null : Number(candidate.packageId);
+    if (selectedPackageId != null) {
+      const [pkg] = await db.select().from(membershipPackagesTable).where(and(
+        eq(membershipPackagesTable.id, selectedPackageId),
+        branchEq(req, membershipPackagesTable.branchId),
+      )).limit(1);
+      if (!pkg) return res.status(400).json({ error: "Package not found" });
+    }
 
     const [updated] = await db.update(instructorAvailabilityTable).set({
       kind: candidate.kind,
@@ -670,6 +807,7 @@ router.patch("/:id/availability/:slotId", authenticate, requireAdmin, attachBran
       startTime: candidate.startTime,
       endTime: candidate.endTime,
       maxPeople: parsedMaxPeople,
+      packageId: selectedPackageId,
       note: candidate.note || null,
       isAvailable: candidate.isAvailable,
     }).where(and(

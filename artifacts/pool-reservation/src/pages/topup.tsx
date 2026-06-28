@@ -12,6 +12,16 @@ import { Upload, Building2, QrCode, CheckCircle2, ChevronLeft } from "lucide-rea
 import { cn } from "@/lib/utils";
 
 type Method = "bank_transfer" | "qr_payment";
+type TopupRequest = {
+  id: number;
+  amount: number;
+  method: string;
+  status: "pending" | "approved" | "rejected";
+  note?: string | null;
+  reviewNote?: string | null;
+  createdAt: string;
+  reviewedAt?: string | null;
+};
 
 export const Topup: FC = () => {
   const { t } = useTranslation();
@@ -28,13 +38,24 @@ export const Topup: FC = () => {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [settings, setSettings] = useState<any>(null);
+  const [requests, setRequests] = useState<TopupRequest[]>([]);
 
   useEffect(() => {
     fetch(`${baseUrl}/api/settings`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(setSettings).catch(() => {});
+    fetch(`${baseUrl}/api/topup/my`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then(setRequests)
+      .catch(() => {});
   }, []);
 
   const presets = [100, 200, 500, 1000, 2000, 5000];
+  const statusLabel: Record<string, string> = { pending: "รอตรวจสอบ", approved: "อนุมัติแล้ว", rejected: "ไม่อนุมัติ" };
+  const statusClass: Record<string, string> = {
+    pending: "bg-amber-100 text-amber-700",
+    approved: "bg-emerald-100 text-emerald-700",
+    rejected: "bg-red-100 text-red-700",
+  };
 
   const handleSlip = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -55,6 +76,8 @@ export const Topup: FC = () => {
         body: JSON.stringify({ amount: Number(amount), method, slipImageUrl: slip, note }),
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed"); }
+      const created = await res.json();
+      setRequests((prev) => [created, ...prev]);
       setSuccess(true);
     } catch (err: any) {
       toast({ title: err.message || "เกิดข้อผิดพลาด", variant: "destructive" });
@@ -153,6 +176,32 @@ export const Topup: FC = () => {
           <Button className="w-full" size="lg" onClick={handleSubmit} disabled={loading || !amount}>
             {loading ? "กำลังส่ง..." : t("topup.submit")}
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">ประวัติคำขอเติมเงิน</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {requests.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">ยังไม่มีประวัติคำขอเติมเงิน</p>
+          ) : (
+            <div className="divide-y">
+              {requests.slice(0, 10).map(req => (
+                <div key={req.id} className="flex items-center gap-3 p-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium">฿{req.amount.toLocaleString("th-TH", { minimumFractionDigits: 2 })}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {req.method === "qr_payment" ? "QR Payment" : "โอนธนาคาร"} · {new Date(req.createdAt).toLocaleString("th-TH")}
+                    </p>
+                    {(req.reviewNote || req.note) && <p className="text-xs text-muted-foreground truncate">{req.reviewNote || req.note}</p>}
+                  </div>
+                  <Badge className={statusClass[req.status] ?? ""}>{statusLabel[req.status] ?? req.status}</Badge>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

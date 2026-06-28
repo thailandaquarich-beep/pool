@@ -12,7 +12,7 @@ import {
 const HIDE_KEY = "aquarich_landing_popup_hidden";
 const SEEN_KEY = "aquarich_landing_popup_seen";
 /* routes where the welcome popup would get in the way (auth forms) */
-const SUPPRESS_ON = ["/login", "/register"];
+const SUPPRESS_ON = ["/", "/login", "/register"];
 
 /**
  * Aquarich welcome popup — greets visitors on app open with the brand pitch and
@@ -32,7 +32,7 @@ export const LandingPopup: FC = () => {
   useEffect(() => {
     if (isLoading) return;
     if (localStorage.getItem(HIDE_KEY) === "1" || localStorage.getItem(SEEN_KEY) === "1") return;
-    if (SUPPRESS_ON.some((p) => location.startsWith(p))) return;
+    if (SUPPRESS_ON.some((p) => (p === "/" ? location === "/" : location.startsWith(p)))) return;
     const id = window.setTimeout(() => {
       localStorage.setItem(SEEN_KEY, "1");
       setOpen(true);

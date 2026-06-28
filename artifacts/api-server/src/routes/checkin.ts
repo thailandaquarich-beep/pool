@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { db, usersTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, ilike, sql } from "drizzle-orm";
 import { authenticate, requireAdmin } from "../middlewares/auth.js";
 import { attachBranch, branchEq } from "../middlewares/branch.js";
 import { getActiveUsages, pickUsable, consumeUse, NoQuotaError } from "../lib/packageUsage.js";
@@ -35,7 +35,7 @@ async function findMemberForCheckin(input: string, req: any) {
   const identity = byCode
     ? eq(usersTable.id, byCode)
     : phoneE164
-      ? eq(usersTable.phoneE164, phoneE164)
+      ? or(eq(usersTable.phoneE164, phoneE164), eq(usersTable.phone, value))
       : eq(usersTable.checkinToken, value);
   const [u] = await db.select().from(usersTable).where(and(identity, branch)).limit(1);
   return u ?? null;
@@ -89,6 +89,48 @@ router.get("/lookup", authenticate, requireAdmin, attachBranch, async (req, res)
   }
 });
 
+// GET /checkin/search?q= — admin: find members by name, phone, or member code
+// (partial match) so staff can look someone up at the desk without a QR/exact code.
+// Branch-confined like the scan. Returns a short candidate list to pick from.
+router.get("/search", authenticate, requireAdmin, attachBranch, async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    if (q.length < 2) return res.json([]);
+    const like = `%${q}%`;
+    const byCode = memberIdFromCode(q); // "ART00027" -> 27
+    const where = and(
+      branchEq(req, usersTable.branchId),
+      or(
+        ilike(usersTable.firstName, like),
+        ilike(usersTable.lastName, like),
+        ilike(sql`${usersTable.firstName} || ' ' || ${usersTable.lastName}`, like),
+        ilike(usersTable.phone, like),
+        ilike(usersTable.phoneE164, like),
+        ...(byCode ? [eq(usersTable.id, byCode)] : []),
+      ),
+    );
+    const rows = await db
+      .select()
+      .from(usersTable)
+      .where(where)
+      .orderBy(usersTable.firstName, usersTable.lastName)
+      .limit(15);
+    return res.json(
+      rows.map((u) => ({
+        id: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        phone: u.phone,
+        houseNumber: u.houseNumber,
+        profileImageUrl: u.profileImageUrl,
+        memberCode: memberCode(u.id, u.phone),
+      })),
+    );
+  } catch {
+    return res.status(500).json({ error: "Failed to search members" });
+  }
+});
+
 // POST /checkin — admin: scan a member QR token -> deduct one use (walk-in check-in).
 router.post("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
@@ -110,14 +152,14 @@ router.post("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
 
     await logUsage({
       userId: u.id,
-      memberCode: memberCode(u.id),
+      memberCode: memberCode(u.id, u.phone),
       name: `${u.firstName} ${u.lastName}`,
       source: "checkin",
       packageName: consumed.package.name,
       detail: "สแกน QR เช็คอินหน้างาน",
     });
 
-    await appendMemberLog({ userId: u.id }, "checkins", {
+    await appendMemberLog({ userId: u.id, memberCode: memberCode(u.id, u.phone) }, "checkins", {
       event: "checkin",
       method: "qr_scan",
       name: `${u.firstName} ${u.lastName}`,

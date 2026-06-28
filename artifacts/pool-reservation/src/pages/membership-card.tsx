@@ -6,9 +6,9 @@ import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Ticket, QrCode, CalendarClock, Sparkles, ShieldCheck, BadgePercent, Check, Crown, Download } from "lucide-react";
+import { BadgePercent, CalendarClock, Check, Crown, Download, History, QrCode, ReceiptText, ShieldCheck, Sparkles, Ticket } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { downloadCsv, csvStamp } from "@/lib/export-csv";
+import { csvStamp, downloadCsv } from "@/lib/export-csv";
 
 type UsagePackage = {
   memberPackageId: number;
@@ -20,6 +20,7 @@ type UsagePackage = {
   bookingDiscount: number;
   benefits: string[];
 };
+
 type Usage = {
   hasActivePackage: boolean;
   hasQuota: boolean;
@@ -28,7 +29,33 @@ type Usage = {
   benefits: string[];
   packages: UsagePackage[];
 };
-type MyPackage = {
+
+type CoursePurchase = {
+  id: number;
+  createdAt: string;
+  packageName: string;
+  amount: number;
+  status: string;
+  description?: string;
+};
+
+type CourseUsage = {
+  id: number;
+  createdAt: string;
+  source: "booking" | "checkin" | string;
+  note?: string | null;
+  packageName: string;
+  reservation?: {
+    id: number;
+    date: string;
+    startTime: string;
+    endTime: string;
+    status: string;
+    numberOfPeople: number;
+  } | null;
+};
+
+type CoursePackage = {
   id: number;
   pricePaid: number;
   bookingsUsed: number;
@@ -44,6 +71,16 @@ type MyPackage = {
   };
 };
 
+type CourseHistory = {
+  purchases: CoursePurchase[];
+  packages: CoursePackage[];
+  usages: CourseUsage[];
+};
+
+const baht = (n: number) => `฿${Number(n || 0).toLocaleString("th-TH")}`;
+const dateTime = (v: string) => new Date(v).toLocaleString("th-TH");
+const dateOnly = (v: string) => new Date(v).toLocaleDateString("th-TH");
+
 export const MembershipCard: FC = () => {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
@@ -54,8 +91,7 @@ export const MembershipCard: FC = () => {
     queryKey: ["checkin", "my-code"],
     queryFn: async () => {
       const res = await fetch(`${baseUrl}/api/checkin/my-code`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) return { token: "" };
-      return res.json();
+      return res.ok ? res.json() : { token: "" };
     },
   });
 
@@ -67,29 +103,37 @@ export const MembershipCard: FC = () => {
       return res.json();
     },
   });
-  const { data: myPackages = [] } = useQuery<MyPackage[]>({
-    queryKey: ["packages", "my"],
+
+  const { data: history = { purchases: [], packages: [], usages: [] } } = useQuery<CourseHistory>({
+    queryKey: ["packages", "my-history"],
     queryFn: async () => {
-      const res = await fetch(`${baseUrl}/api/packages/my`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) return [];
+      const res = await fetch(`${baseUrl}/api/packages/my/history`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { purchases: [], packages: [], usages: [] };
       return res.json();
     },
   });
 
   const remaining = usage?.totalRemaining ?? null;
   const initials = user ? `${user.firstName?.[0] ?? ""}${user.lastName?.[0] ?? ""}`.toUpperCase() : "U";
-  const exportPackages = () => {
-    downloadCsv(`my-course-history-${csvStamp()}.csv`, [
-      ["คอร์ส", "วันที่เติม", "วันเริ่ม", "วันหมดอายุ", "ใช้ไป", "โควตา", "ยอดชำระ", "สถานะ"],
-      ...myPackages.map((p) => [
-        p.package.name,
-        new Date(p.createdAt).toLocaleString("th-TH"),
-        new Date(p.startDate).toLocaleDateString("th-TH"),
-        new Date(p.endDate).toLocaleDateString("th-TH"),
-        p.bookingsUsed,
-        p.package.maxBookingsPerMonth ?? "ไม่จำกัด",
-        p.pricePaid,
-        p.status,
+
+  const exportPurchases = () => {
+    downloadCsv(`my-course-purchases-${csvStamp()}.csv`, [
+      ["วันที่ซื้อ", "รายการ", "ยอดเงิน", "สถานะ", "รายละเอียด"],
+      ...history.purchases.map((p) => [dateTime(p.createdAt), p.packageName, p.amount, p.status, p.description ?? ""]),
+    ]);
+  };
+
+  const exportUsages = () => {
+    downloadCsv(`my-course-usages-${csvStamp()}.csv`, [
+      ["วันที่ใช้", "คอร์ส", "ประเภท", "วันที่จอง", "เวลา", "จำนวนคน", "หมายเหตุ"],
+      ...history.usages.map((u) => [
+        dateTime(u.createdAt),
+        u.packageName,
+        u.source === "checkin" ? "เช็คอิน" : "ใช้จากการจอง",
+        u.reservation?.date ?? "",
+        u.reservation ? `${u.reservation.startTime}-${u.reservation.endTime}` : "",
+        u.reservation?.numberOfPeople ?? "",
+        u.note ?? "",
       ]),
     ]);
   };
@@ -100,154 +144,168 @@ export const MembershipCard: FC = () => {
         <DialogHeader className="sr-only">
           <DialogTitle>บัตรสมาชิก</DialogTitle>
         </DialogHeader>
-    <div className="bg-background pb-6">
-      <div className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-cyan-50/50 to-background dark:from-primary/20 dark:via-cyan-900/20 dark:to-background py-10 px-4">
-        <div className="max-w-md mx-auto text-center space-y-1 relative z-10">
-          <h1 className="text-3xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-primary to-cyan-600">
-            บัตรสมาชิก
-          </h1>
-          <p className="text-muted-foreground text-sm flex items-center justify-center gap-1.5">
-            <QrCode className="w-4 h-4 text-cyan-500" /> ให้แอดมินสแกน QR เพื่อเช็คอิน
-          </p>
-        </div>
-      </div>
 
-      <div className="max-w-md mx-auto px-4 -mt-2 space-y-6">
-        {/* Member QR card */}
-        <Card className="overflow-hidden rounded-3xl border-border/60 shadow-xl">
-          <div className="bg-gradient-to-br from-primary to-cyan-500 p-5 text-white flex items-center gap-3">
-            <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center text-xl font-bold border-2 border-white/40">
-              {initials}
+        <div className="bg-background pb-6">
+          <div className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-cyan-50/50 to-background dark:from-primary/20 dark:via-cyan-900/20 dark:to-background py-10 px-4">
+            <div className="max-w-md mx-auto text-center space-y-1 relative z-10">
+              <h1 className="text-3xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-primary to-cyan-600">บัตรสมาชิก</h1>
+              <p className="text-muted-foreground text-sm flex items-center justify-center gap-1.5">
+                <QrCode className="w-4 h-4 text-cyan-500" /> ให้แอดมินสแกน QR เพื่อเช็คอิน
+              </p>
             </div>
-            <div className="min-w-0">
-              <div className="font-bold text-lg truncate">{user?.firstName} {user?.lastName}</div>
-              <div className="text-white/80 text-xs font-mono">{(user as any)?.memberCode ?? ""}</div>
-            </div>
-            <Ticket className="w-7 h-7 ml-auto opacity-80" />
           </div>
 
-          <CardContent className="p-6 flex flex-col items-center text-center">
-            <div className="p-4 bg-white rounded-2xl shadow-inner ring-1 ring-border">
-              {code?.token ? (
-                <QRCodeSVG value={code.token} size={208} level="M" includeMargin={false} />
-              ) : (
-                <div className="w-52 h-52 flex items-center justify-center text-muted-foreground">กำลังโหลด...</div>
-              )}
-            </div>
-
-            <div className="mt-6 w-full rounded-2xl bg-secondary/40 p-5">
-              <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">จำนวนครั้งคงเหลือ</div>
-              <div className={cn("text-5xl font-extrabold mt-1", usage?.hasQuota ? "text-primary" : "text-destructive")}>
-                {remaining === null ? "∞" : remaining}
-                {remaining !== null && <span className="text-xl font-bold text-muted-foreground"> ครั้ง</span>}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Member benefits / สิทธิพิเศษสมาชิก */}
-        {usage && usage.hasActivePackage && (usage.benefits.length > 0 || usage.bestDiscount > 0) && (
-          <Card className="rounded-2xl border-primary/30 bg-gradient-to-br from-primary/5 to-cyan-50/40 dark:from-primary/10 dark:to-cyan-900/10">
-            <CardContent className="p-5 space-y-3">
-              <h2 className="font-bold flex items-center gap-2">
-                <Crown className="w-4 h-4 text-amber-500" /> สิทธิพิเศษสมาชิก
-              </h2>
-              {usage.bestDiscount > 0 && (
-                <div className="flex items-center gap-2 rounded-xl bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-sm font-semibold text-amber-700 dark:text-amber-300">
-                  <BadgePercent className="w-4 h-4 shrink-0" />
-                  ส่วนลดค่าจอง {usage.bestDiscount}%
+          <div className="max-w-md md:max-w-xl mx-auto px-4 -mt-2 space-y-6">
+            <Card className="overflow-hidden rounded-3xl border-border/60 shadow-xl">
+              <div className="bg-gradient-to-br from-primary to-cyan-500 p-5 text-white flex items-center gap-3">
+                <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center text-xl font-bold border-2 border-white/40">{initials}</div>
+                <div className="min-w-0">
+                  <div className="font-bold text-lg truncate">{user?.firstName} {user?.lastName}</div>
+                  <div className="text-white/80 text-xs font-mono">{(user as any)?.memberCode ?? ""}</div>
                 </div>
-              )}
-              {usage.benefits.length > 0 && (
-                <ul className="space-y-1.5">
-                  {usage.benefits.map((b, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
-                      <Check className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-                      <span>{b}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-        )}
+                <Ticket className="w-7 h-7 ml-auto opacity-80" />
+              </div>
 
-        {/* Packages */}
-        {usage && usage.packages.length > 0 ? (
-          <div className="space-y-3">
-            <h2 className="font-bold flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary" /> แพ็กเกจของฉัน</h2>
-            {usage.packages.map((p) => (
-              <Card key={p.memberPackageId} className="rounded-2xl">
-                <CardContent className="p-4 flex items-center gap-4">
-                  <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                    <ShieldCheck className="w-5 h-5" />
+              <CardContent className="p-6 flex flex-col items-center text-center">
+                <div className="p-4 bg-white rounded-2xl shadow-inner ring-1 ring-border">
+                  {code?.token ? (
+                    <QRCodeSVG value={code.token} size={208} level="M" includeMargin={false} />
+                  ) : (
+                    <div className="w-52 h-52 flex items-center justify-center text-muted-foreground">กำลังโหลด...</div>
+                  )}
+                </div>
+
+                <div className="mt-6 w-full rounded-2xl bg-secondary/40 p-5">
+                  <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">จำนวนครั้งคงเหลือ</div>
+                  <div className={cn("text-5xl font-extrabold mt-1", usage?.hasQuota ? "text-primary" : "text-destructive")}>
+                    {remaining === null ? "∞" : remaining}
+                    {remaining !== null && <span className="text-xl font-bold text-muted-foreground"> ครั้ง</span>}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold truncate">{p.name}</div>
-                    <div className="text-xs text-muted-foreground flex items-center gap-1">
-                      <CalendarClock className="w-3.5 h-3.5" />
-                      หมดอายุ {new Date(p.endDate).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}
+                </div>
+              </CardContent>
+            </Card>
+
+            {usage && usage.hasActivePackage && (usage.benefits.length > 0 || usage.bestDiscount > 0) && (
+              <Card className="rounded-2xl border-primary/30 bg-gradient-to-br from-primary/5 to-cyan-50/40 dark:from-primary/10 dark:to-cyan-900/10">
+                <CardContent className="p-5 space-y-3">
+                  <h2 className="font-bold flex items-center gap-2"><Crown className="w-4 h-4 text-amber-500" /> สิทธิพิเศษสมาชิก</h2>
+                  {usage.bestDiscount > 0 && (
+                    <div className="flex items-center gap-2 rounded-xl bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-sm font-semibold text-amber-700 dark:text-amber-300">
+                      <BadgePercent className="w-4 h-4 shrink-0" /> ส่วนลดค่าจอง {usage.bestDiscount}%
                     </div>
-                    {p.bookingDiscount > 0 && (
-                      <div className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1 mt-0.5">
-                        <BadgePercent className="w-3.5 h-3.5" /> ลดค่าจอง {p.bookingDiscount}%
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-bold text-primary">{p.remaining === null ? "∞" : p.remaining}</div>
-                    <div className="text-[10px] text-muted-foreground">
-                      {p.quota === null ? "ไม่จำกัด" : `ใช้ไป ${p.used}/${p.quota}`}
-                    </div>
-                  </div>
+                  )}
+                  {usage.benefits.length > 0 && (
+                    <ul className="space-y-1.5">
+                      {usage.benefits.map((b, i) => (
+                        <li key={i} className="flex items-start gap-2 text-sm">
+                          <Check className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                          <span>{b}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </CardContent>
               </Card>
-            ))}
-          </div>
-        ) : (
-          <Card className="rounded-2xl border-dashed">
-            <CardContent className="py-8 text-center text-muted-foreground space-y-3">
-              <Ticket className="w-10 h-10 mx-auto opacity-40" />
-              <p>คุณยังไม่มีแพ็กเกจที่ใช้งานได้</p>
-              <Button onClick={() => setLocation("/packages")} className="rounded-full gap-1.5">
-                <Ticket className="w-4 h-4" /> ดูแพ็กเกจ
-              </Button>
-            </CardContent>
-          </Card>
-        )}
+            )}
 
-        {myPackages.length > 0 && (
-          <Card className="rounded-2xl">
-            <CardContent className="p-5 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="font-bold flex items-center gap-2"><CalendarClock className="w-4 h-4 text-primary" /> ประวัติคอร์สทั้งหมด</h2>
-                <Button variant="outline" size="sm" className="gap-1.5 rounded-full" onClick={exportPackages}>
-                  <Download className="w-3.5 h-3.5" /> ดาวน์โหลด
-                </Button>
-              </div>
-              <div className="space-y-2">
-                {myPackages.map((p) => (
-                  <div key={p.id} className="rounded-xl bg-secondary/40 p-3 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-semibold text-sm truncate">{p.package.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        เติม {new Date(p.createdAt).toLocaleDateString("th-TH")} • หมดอายุ {new Date(p.endDate).toLocaleDateString("th-TH")}
+            {usage && usage.packages.length > 0 ? (
+              <div className="space-y-3">
+                <h2 className="font-bold flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary" /> แพ็กเกจของฉัน</h2>
+                {usage.packages.map((p) => (
+                  <Card key={p.memberPackageId} className="rounded-2xl">
+                    <CardContent className="p-4 flex items-center gap-4">
+                      <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                        <ShieldCheck className="w-5 h-5" />
                       </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className={cn("text-xs font-semibold", p.status === "active" && !p.isExpired ? "text-emerald-600" : "text-muted-foreground")}>
-                        {p.status === "active" && !p.isExpired ? "ใช้งานได้" : "หมดอายุ"}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold truncate">{p.name}</div>
+                        <div className="text-xs text-muted-foreground flex items-center gap-1">
+                          <CalendarClock className="w-3.5 h-3.5" />
+                          หมดอายุ {new Date(p.endDate).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}
+                        </div>
+                        {p.bookingDiscount > 0 && (
+                          <div className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1 mt-0.5">
+                            <BadgePercent className="w-3.5 h-3.5" /> ลดค่าจอง {p.bookingDiscount}%
+                          </div>
+                        )}
                       </div>
-                      <div className="text-[11px] text-muted-foreground">ใช้ไป {p.bookingsUsed}/{p.package.maxBookingsPerMonth ?? "∞"}</div>
-                    </div>
-                  </div>
+                      <div className="text-right">
+                        <div className="text-lg font-bold text-primary">{p.remaining === null ? "∞" : p.remaining}</div>
+                        <div className="text-[10px] text-muted-foreground">{p.quota === null ? "ไม่จำกัด" : `ใช้ไป ${p.used}/${p.quota}`}</div>
+                      </div>
+                    </CardContent>
+                  </Card>
                 ))}
               </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </div>
+            ) : (
+              <Card className="rounded-2xl border-dashed">
+                <CardContent className="py-8 text-center text-muted-foreground space-y-3">
+                  <Ticket className="w-10 h-10 mx-auto opacity-40" />
+                  <p>คุณยังไม่มีแพ็กเกจที่ใช้งานได้</p>
+                  <Button onClick={() => setLocation("/packages")} className="rounded-full gap-1.5">
+                    <Ticket className="w-4 h-4" /> ดูแพ็กเกจ
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            <Card className="rounded-2xl">
+              <CardContent className="p-5 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="font-bold flex items-center gap-2"><ReceiptText className="w-4 h-4 text-primary" /> ประวัติการซื้อคอร์ส</h2>
+                  <Button variant="outline" size="sm" className="gap-1.5 rounded-full" onClick={exportPurchases} disabled={!history.purchases.length}>
+                    <Download className="w-3.5 h-3.5" /> ดาวน์โหลด
+                  </Button>
+                </div>
+                {history.purchases.length ? (
+                  <div className="space-y-2">
+                    {history.purchases.map((p) => (
+                      <div key={p.id} className="rounded-xl bg-secondary/40 p-3 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-semibold text-sm truncate">{p.packageName}</div>
+                          <div className="text-xs text-muted-foreground">{dateTime(p.createdAt)}</div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="font-bold text-primary">{baht(p.amount)}</div>
+                          <div className="text-[11px] text-muted-foreground">{p.status}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground text-center py-6 border border-dashed rounded-2xl">ยังไม่มีประวัติการซื้อคอร์ส</div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl">
+              <CardContent className="p-5 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="font-bold flex items-center gap-2"><History className="w-4 h-4 text-primary" /> ประวัติการใช้งาน</h2>
+                  <Button variant="outline" size="sm" className="gap-1.5 rounded-full" onClick={exportUsages} disabled={!history.usages.length}>
+                    <Download className="w-3.5 h-3.5" /> ดาวน์โหลด
+                  </Button>
+                </div>
+                {history.usages.length ? (
+                  <div className="space-y-2">
+                    {history.usages.map((u) => (
+                      <div key={u.id} className="rounded-xl bg-secondary/40 p-3 text-sm">
+                        <div className="font-semibold">{u.source === "checkin" ? "เช็คอินหน้างาน" : "ใช้จากการจอง"} · {u.packageName}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {dateTime(u.createdAt)}
+                          {u.reservation ? ` · ${dateOnly(u.reservation.date)} ${u.reservation.startTime}-${u.reservation.endTime}` : ""}
+                        </div>
+                        {u.note && <div className="text-xs text-muted-foreground mt-1">{u.note}</div>}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground text-center py-6 border border-dashed rounded-2xl">ยังไม่มีประวัติการใช้งาน</div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

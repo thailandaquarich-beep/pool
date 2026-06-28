@@ -6,8 +6,17 @@ import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
 import { getOrCreateWallet } from "./wallet.js";
 import { getActiveUsages } from "../lib/packageUsage.js";
 import { appendMemberLog } from "../lib/memberLog.js";
+import { memberCode } from "../lib/memberCode.js";
 
 const router = Router();
+
+function packageNameFromDescription(description: string) {
+  return description
+    .replace(/^Admin package:\s*/i, "")
+    .replace(/^ซื้อแพ็กเกจ:\s*/i, "")
+    .replace(/^เธเธทเนเธญเนเธเนเธเน€เธเธ:\s*/i, "")
+    .trim();
+}
 
 // GET /packages/public — active packages for the public landing page (no auth).
 // Same shape as the authenticated list; only active packages are exposed.
@@ -108,11 +117,14 @@ router.get("/admin/special-report", authenticate, requireAdmin, attachBranch, as
         createdAt: transaction.createdAt.toISOString(),
         transactionId: transaction.id,
         memberId: member.id,
-        memberCode: `ART${String(member.id).padStart(5, "0")}`,
+        memberCode: memberCode(member.id, member.phone),
         memberName: `${member.firstName} ${member.lastName}`.trim(),
+        buyerName: `${member.firstName} ${member.lastName}`.trim(),
         phone: member.phone,
+        buyerPhone: member.phone,
         packageId: pkg?.id ?? transaction.referenceId,
         packageName: pkg?.name ?? transaction.description.replace(/^Admin package:\s*/i, "").replace(/^ซื้อแพ็กเกจ:\s*/i, "").trim(),
+        itemName: pkg?.name ?? packageNameFromDescription(transaction.description),
         pricePaid: Number(transaction.amount),
         amount: Number(transaction.amount),
         status: transaction.status,
@@ -285,7 +297,7 @@ router.get("/admin/member/:userId/history", authenticate, requireAdmin, attachBr
       admin: admin ? { id: admin.id, firstName: admin.firstName, lastName: admin.lastName, username: admin.username } : null,
     }));
 
-    return res.json({ member: { id: member.id, firstName: member.firstName, lastName: member.lastName, memberCode: `ART${String(member.id).padStart(5, "0")}` }, packages, usages, events });
+    return res.json({ member: { id: member.id, firstName: member.firstName, lastName: member.lastName, memberCode: memberCode(member.id, member.phone) }, packages, usages, events });
   } catch {
     return res.status(500).json({ error: "Failed to get member course history" });
   }
@@ -460,6 +472,78 @@ router.get("/my", authenticate, async (req, res) => {
     })));
   } catch {
     return res.status(500).json({ error: "Failed to get my packages" });
+  }
+});
+
+// GET /packages/my/history — member: own course purchase and usage history
+router.get("/my/history", authenticate, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+
+    const purchaseRows = await db
+      .select({ transaction: transactionsTable, pkg: membershipPackagesTable })
+      .from(transactionsTable)
+      .leftJoin(membershipPackagesTable, eq(transactionsTable.referenceId, membershipPackagesTable.id))
+      .where(and(eq(transactionsTable.userId, userId), eq(transactionsTable.type, "package_purchase")))
+      .orderBy(desc(transactionsTable.createdAt))
+      .limit(200);
+
+    const packageRows = await db
+      .select({ mp: memberPackagesTable, pkg: membershipPackagesTable })
+      .from(memberPackagesTable)
+      .innerJoin(membershipPackagesTable, eq(memberPackagesTable.packageId, membershipPackagesTable.id))
+      .where(and(eq(memberPackagesTable.userId, userId), sql`${memberPackagesTable.status} <> 'cancelled'`))
+      .orderBy(desc(memberPackagesTable.createdAt))
+      .limit(200);
+
+    const usages = await db
+      .select({ usage: packageUsagesTable, mp: memberPackagesTable, pkg: membershipPackagesTable, reservation: reservationsTable })
+      .from(packageUsagesTable)
+      .innerJoin(memberPackagesTable, eq(packageUsagesTable.memberPackageId, memberPackagesTable.id))
+      .innerJoin(membershipPackagesTable, eq(memberPackagesTable.packageId, membershipPackagesTable.id))
+      .leftJoin(reservationsTable, eq(packageUsagesTable.reservationId, reservationsTable.id))
+      .where(eq(packageUsagesTable.userId, userId))
+      .orderBy(desc(packageUsagesTable.createdAt))
+      .limit(200);
+
+    const now = new Date();
+    return res.json({
+      purchases: purchaseRows.map(({ transaction, pkg }) => ({
+        id: transaction.id,
+        createdAt: transaction.createdAt.toISOString(),
+        packageId: pkg?.id ?? transaction.referenceId,
+        packageName: pkg?.name ?? transaction.description.replace(/^Admin package:\s*/i, "").replace(/^ซื้อแพ็กเกจ:\s*/i, "").trim(),
+        amount: Number(transaction.amount),
+        status: transaction.status,
+        description: transaction.description,
+      })),
+      packages: packageRows.map(({ mp, pkg }) => ({
+        ...mp,
+        pricePaid: Number(mp.pricePaid),
+        startDate: mp.startDate.toISOString(),
+        endDate: mp.endDate.toISOString(),
+        createdAt: mp.createdAt.toISOString(),
+        isExpired: mp.status !== "active" || new Date(mp.endDate) < now,
+        package: { ...pkg, price: Number(pkg.price), bookingDiscount: Number(pkg.bookingDiscount) },
+      })),
+      usages: usages.map(({ usage, pkg, reservation }) => ({
+        id: usage.id,
+        createdAt: usage.createdAt.toISOString(),
+        source: usage.source,
+        note: usage.note,
+        packageName: pkg.name,
+        reservation: reservation ? {
+          id: reservation.id,
+          date: reservation.date,
+          startTime: reservation.startTime,
+          endTime: reservation.endTime,
+          status: reservation.status,
+          numberOfPeople: reservation.numberOfPeople,
+        } : null,
+      })),
+    });
+  } catch {
+    return res.status(500).json({ error: "Failed to get package history" });
   }
 });
 

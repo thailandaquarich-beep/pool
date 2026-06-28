@@ -13,6 +13,16 @@ type Transaction = {
   id: number; userId: number; amount: number; type: string;
   description: string; status: string; createdAt: string;
 };
+type TopupRequest = {
+  id: number;
+  amount: number;
+  method: string;
+  status: "pending" | "approved" | "rejected";
+  note?: string | null;
+  reviewNote?: string | null;
+  createdAt: string;
+  reviewedAt?: string | null;
+};
 
 export const WalletPage: FC = () => {
   const { t } = useTranslation();
@@ -22,17 +32,20 @@ export const WalletPage: FC = () => {
 
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [topupRequests, setTopupRequests] = useState<TopupRequest[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [wRes, tRes] = await Promise.all([
+      const [wRes, tRes, topupRes] = await Promise.all([
         fetch(`${baseUrl}/api/wallet/me`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${baseUrl}/api/wallet/transactions?limit=20`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${baseUrl}/api/wallet/transactions?limit=50`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${baseUrl}/api/topup/my`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (wRes.ok) setWallet(await wRes.json());
       if (tRes.ok) { const d = await tRes.json(); setTransactions(d.transactions || []); }
+      if (topupRes.ok) setTopupRequests(await topupRes.json());
     } finally {
       setLoading(false);
     }
@@ -43,6 +56,23 @@ export const WalletPage: FC = () => {
   const typeIcon = (type: string) => {
     if (["topup", "admin_credit", "booking_refund"].includes(type)) return <ArrowUpCircle className="w-4 h-4 text-emerald-500" />;
     return <ArrowDownCircle className="w-4 h-4 text-red-500" />;
+  };
+
+  const statusLabel: Record<string, string> = {
+    pending: "รอตรวจสอบ",
+    approved: "อนุมัติแล้ว",
+    completed: "สำเร็จ",
+    rejected: "ไม่อนุมัติ",
+    failed: "ไม่สำเร็จ",
+    refunded: "คืนเงินแล้ว",
+  };
+  const statusClass: Record<string, string> = {
+    pending: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+    approved: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+    completed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+    rejected: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+    failed: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+    refunded: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
   };
 
   const typeLabel: Record<string, string> = {
@@ -95,6 +125,38 @@ export const WalletPage: FC = () => {
         </Button>
       </div>
 
+      <Card>
+        <CardHeader className="flex flex-row items-center gap-2">
+          <History className="w-5 h-5 text-muted-foreground" />
+          <CardTitle className="text-base">ประวัติคำขอเติมเงิน</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {topupRequests.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">ยังไม่มีประวัติคำขอเติมเงิน</p>
+          ) : (
+            <div className="divide-y">
+              {topupRequests.slice(0, 10).map(req => (
+                <div key={req.id} className="flex items-center gap-3 p-4">
+                  <div className="p-2 bg-muted rounded-full"><ArrowUpCircle className="w-4 h-4 text-emerald-500" /></div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">เติมเงินผ่าน {req.method === "qr_payment" ? "QR Payment" : "โอนธนาคาร"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(req.createdAt).toLocaleString("th-TH")}
+                      {req.reviewedAt ? ` · ตรวจแล้ว ${new Date(req.reviewedAt).toLocaleString("th-TH")}` : ""}
+                    </p>
+                    {(req.note || req.reviewNote) && <p className="text-xs text-muted-foreground truncate">{req.reviewNote || req.note}</p>}
+                  </div>
+                  <div className="text-right shrink-0 space-y-1">
+                    <p className="font-semibold text-sm text-emerald-600">+฿{req.amount.toLocaleString("th-TH", { minimumFractionDigits: 2 })}</p>
+                    <Badge className={statusClass[req.status] ?? ""}>{statusLabel[req.status] ?? req.status}</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Transaction history */}
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
@@ -111,7 +173,7 @@ export const WalletPage: FC = () => {
                   <div className="p-2 bg-muted rounded-full">{typeIcon(tx.type)}</div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{tx.description}</p>
-                    <p className="text-xs text-muted-foreground">{typeLabel[tx.type] || tx.type} · {new Date(tx.createdAt).toLocaleDateString("th-TH")}</p>
+                    <p className="text-xs text-muted-foreground">{typeLabel[tx.type] || tx.type} · {statusLabel[tx.status] ?? tx.status} · {new Date(tx.createdAt).toLocaleString("th-TH")}</p>
                   </div>
                   <p className={cn("font-semibold text-sm whitespace-nowrap", ["topup","admin_credit","booking_refund"].includes(tx.type) ? "text-emerald-600" : "text-red-500")}>
                     {["topup","admin_credit","booking_refund"].includes(tx.type) ? "+" : "-"}฿{tx.amount.toLocaleString("th-TH", { minimumFractionDigits: 2 })}

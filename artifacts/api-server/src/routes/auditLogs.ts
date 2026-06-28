@@ -223,7 +223,7 @@ router.get("/", async (req, res) => {
     return res.json({
       logs: rows.map(({ log, firstName, lastName, phone, email, profileImageUrl }) => {
         const actorName = firstName || lastName ? `${firstName ?? ""} ${lastName ?? ""}`.trim() : log.actorUsername;
-        const code = log.actorUserId ? memberCode(log.actorUserId) : null;
+        const code = log.actorUserId ? memberCode(log.actorUserId, phone) : null;
         return {
           ...log,
           createdAt: log.createdAt.toISOString(),

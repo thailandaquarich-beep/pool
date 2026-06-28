@@ -32,6 +32,15 @@ type ResultData = {
   remainingAfter?: number | null;
   packageName?: string | null;
 };
+type Candidate = {
+  id: number;
+  firstName: string;
+  lastName: string;
+  phone: string | null;
+  houseNumber: string | null;
+  profileImageUrl?: string | null;
+  memberCode: string;
+};
 
 const ELEMENT_ID = "qr-reader";
 
@@ -43,6 +52,8 @@ export function AdminCheckinScan() {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const [scanning, setScanning] = useState(false);
   const [manual, setManual] = useState("");
+  const [candidates, setCandidates] = useState<Candidate[] | null>(null);
+  const [searching, setSearching] = useState(false);
   const [lookup, setLookup] = useState<LookupData | null>(null);
   const [selectedMemberPackageId, setSelectedMemberPackageId] = useState("");
   const [result, setResult] = useState<ResultData | null>(null);
@@ -65,6 +76,7 @@ export function AdminCheckinScan() {
   async function startScanner() {
     setResult(null);
     setLookup(null);
+    setCandidates(null);
     try {
       const s = new Html5Qrcode(ELEMENT_ID);
       scannerRef.current = s;
@@ -98,6 +110,7 @@ export function AdminCheckinScan() {
         setLookup(null);
         toast({ title: "ไม่พบสมาชิก", description: data.error, variant: "destructive" });
       } else {
+        setCandidates(null);
         setLookup({ ...data, code: c });
         const firstUsable = (data.packages ?? []).find((p: any) => p.remaining === null || p.remaining > 0);
         setSelectedMemberPackageId(firstUsable ? String(firstUsable.memberPackageId) : "");
@@ -107,6 +120,42 @@ export function AdminCheckinScan() {
     } finally {
       setBusy(false);
     }
+  }
+
+  // Search by name / phone / member code. If exactly one match, jump straight to its
+  // package preview; several matches show a pick list; none falls back to an exact
+  // lookup (so a pasted QR token or full code still works).
+  async function doSearch(q: string) {
+    const term = q.trim();
+    if (!term) return;
+    setSearching(true);
+    setResult(null);
+    setLookup(null);
+    setCandidates(null);
+    try {
+      const res = await fetch(`${baseUrl}/api/checkin/search?q=${encodeURIComponent(term)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const rows: Candidate[] = res.ok ? await res.json() : [];
+      if (rows.length === 1) {
+        void doLookup(rows[0].memberCode || rows[0].phone || term);
+      } else if (rows.length > 1) {
+        setCandidates(rows);
+      } else {
+        // no name/phone match — treat the input as an exact code or QR token
+        void doLookup(term);
+      }
+    } catch {
+      toast({ title: "เกิดข้อผิดพลาด", variant: "destructive" });
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function pickCandidate(c: Candidate) {
+    setCandidates(null);
+    setManual(c.memberCode || c.phone || "");
+    void doLookup(c.memberCode || c.phone || String(c.id));
   }
 
   async function confirmCheckin() {
@@ -167,21 +216,47 @@ export function AdminCheckinScan() {
       {/* Manual */}
       <Card className="rounded-2xl">
         <CardContent className="p-4 space-y-2">
-          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">ค้นหาด้วยรหัสสมาชิก / เบอร์โทร / QR</label>
+          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">ค้นหาด้วยชื่อ / เบอร์โทร / รหัสสมาชิก / QR</label>
           <div className="flex gap-2">
             <Input
               value={manual}
               onChange={(e) => setManual(e.target.value)}
-              placeholder="เช่น ART00027 หรือ 0812345678"
+              placeholder="เช่น สมชาย, 0812345678 หรือ ART00027"
               inputMode="search"
-              onKeyDown={(e) => e.key === "Enter" && doLookup(manual)}
+              onKeyDown={(e) => e.key === "Enter" && doSearch(manual)}
             />
-            <Button variant="outline" disabled={busy || !manual.trim()} onClick={() => doLookup(manual)} className="gap-1.5 shrink-0">
+            <Button variant="outline" disabled={busy || searching || !manual.trim()} onClick={() => doSearch(manual)} className="gap-1.5 shrink-0">
               <Search className="w-4 h-4" /> ค้นหา
             </Button>
           </div>
         </CardContent>
       </Card>
+
+      {/* Search results (multiple matches) */}
+      {candidates && candidates.length > 0 && (
+        <Card className="rounded-2xl">
+          <CardContent className="p-3 space-y-1">
+            <div className="px-1 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              พบ {candidates.length} รายการ — แตะเพื่อเลือก
+            </div>
+            {candidates.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => pickCandidate(c)}
+                className="w-full flex items-center gap-3 rounded-xl p-2.5 text-left hover:bg-secondary/60 transition-colors"
+              >
+                <MemberAvatar firstName={c.firstName} lastName={c.lastName} src={c.profileImageUrl} className="w-10 h-10 text-sm" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold truncate">{c.firstName} {c.lastName}</div>
+                  <div className="text-xs text-muted-foreground font-mono truncate">{c.memberCode}{c.houseNumber ? ` · บ้านเลขที่ ${c.houseNumber}` : ""}</div>
+                </div>
+                <UserCheck className="w-4 h-4 text-muted-foreground shrink-0" />
+              </button>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Lookup preview -> confirm */}
       {lookup && (

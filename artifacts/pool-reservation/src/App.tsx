@@ -42,9 +42,7 @@ const AdminInstructors = lazy(() => import("@/pages/admin/instructors").then((m)
 const AdminCheckinScan = lazy(() => import("@/pages/admin/checkin-scan").then((m) => ({ default: m.AdminCheckinScan })));
 const AdminAnnouncements = lazy(() => import("@/pages/admin/announcements").then((m) => ({ default: m.AdminAnnouncements })));
 const AdminWalletManagement = lazy(() => import("@/pages/admin/wallet-management").then((m) => ({ default: m.AdminWalletManagement })));
-const AdminPackagesManagement = lazy(() => import("@/pages/admin/packages-management").then((m) => ({ default: m.AdminPackagesManagement })));
-const AdminProducts = lazy(() => import("@/pages/admin/products").then((m) => ({ default: m.AdminProducts })));
-const AdminOrders = lazy(() => import("@/pages/admin/orders").then((m) => ({ default: m.AdminOrders })));
+const AdminSales = lazy(() => import("@/pages/admin/sales").then((m) => ({ default: m.AdminSales })));
 const AdminAiChat = lazy(() => import("@/pages/admin/ai-chat").then((m) => ({ default: m.AdminAiChat })));
 const AdminTheme = lazy(() => import("@/pages/admin/theme").then((m) => ({ default: m.AdminTheme })));
 const AdminAttendance = lazy(() => import("@/pages/admin/attendance").then((m) => ({ default: m.AdminAttendance })));
@@ -130,9 +128,9 @@ function Router() {
         <Route path="/admin/checkin"><ProtectedRoute component={AdminCheckinScan} adminOnly /></Route>
         <Route path="/admin/announcements"><ProtectedRoute component={AdminAnnouncements} adminOnly /></Route>
         <Route path="/admin/wallet"><ProtectedRoute component={AdminWalletManagement} adminOnly /></Route>
-        <Route path="/admin/packages"><ProtectedRoute component={AdminPackagesManagement} adminOnly /></Route>
-        <Route path="/admin/products"><ProtectedRoute component={AdminProducts} adminOnly /></Route>
-        <Route path="/admin/orders"><ProtectedRoute component={AdminOrders} adminOnly /></Route>
+        <Route path="/admin/packages"><ProtectedRoute component={AdminSales} adminOnly /></Route>
+        <Route path="/admin/products"><ProtectedRoute component={AdminSales} adminOnly /></Route>
+        <Route path="/admin/orders"><ProtectedRoute component={AdminSales} adminOnly /></Route>
         <Route path="/admin/ai-chat"><ProtectedRoute component={AdminAiChat} adminOnly /></Route>
         <Route path="/admin/theme"><ProtectedRoute component={AdminTheme} adminOnly /></Route>
         <Route path="/admin/work-plan"><ProtectedRoute component={AdminWorkPlan} adminOnly /></Route>

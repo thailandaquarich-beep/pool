@@ -41,47 +41,42 @@ export const Sidebar: FC = () => {
     return () => clearInterval(iv);
   }, [isAdmin]);
 
-  const memberLinks = [
-    { href: "/dashboard", label: t("nav.dashboard"), icon: LayoutDashboard },
-    { href: "/reservations", label: t("nav.reservations"), icon: CalendarDays },
-    { href: "/book", label: t("nav.book"), icon: CalendarPlus },
-    { href: "/instructors", label: "ครูฝึก", icon: GraduationCap },
-    { href: "/membership-card", label: "บัตรสมาชิก", icon: QrCode },
-    { href: "/wallet", label: t("nav.wallet"), icon: Wallet },
-    { href: "/packages", label: t("nav.packages"), icon: Crown },
-    { href: "/products", label: "ร้านค้าสโมสร", icon: ShoppingBag },
-    { href: "/my-orders", label: "คำสั่งซื้อของฉัน", icon: Package },
-    { href: "/services", label: "บริการอื่นๆ", icon: Sparkles },
-    { href: "/chat", label: t("nav.chat"), icon: MessageCircle },
-    { href: "/profile", label: t("nav.profile"), icon: User },
+  const memberGroups = [
+    {
+      title: "เริ่มใช้งาน",
+      links: [
+        { href: "/dashboard", label: "ภาพรวมสมาชิก", icon: LayoutDashboard },
+        { href: "/book", label: "จองคลาส/สระ", icon: CalendarPlus },
+        { href: "/reservations", label: "การจองของฉัน", icon: CalendarDays },
+        { href: "/calendar", label: "ปฏิทินคลาส", icon: Calendar },
+        { href: "/instructors", label: "ครูฝึก", icon: GraduationCap },
+      ],
+    },
+    {
+      title: "สมาชิกและแพ็กเกจ",
+      links: [
+        { href: "/membership-card", label: "บัตรสมาชิก QR", icon: QrCode },
+        { href: "/packages", label: "แพ็กเกจของฉัน", icon: Crown },
+        { href: "/wallet", label: "กระเป๋าเงิน", icon: Wallet },
+      ],
+    },
+    {
+      title: "ร้านค้าและบริการ",
+      links: [
+        { href: "/products", label: "ร้านค้าสโมสร", icon: ShoppingBag },
+        { href: "/my-orders", label: "คำสั่งซื้อของฉัน", icon: Package },
+        { href: "/services", label: "บริการอื่น ๆ", icon: Sparkles },
+      ],
+    },
+    {
+      title: "บัญชีและช่วยเหลือ",
+      links: [
+        { href: "/chat", label: "ติดต่อเรา", icon: MessageCircle },
+        { href: "/profile", label: "โปรไฟล์", icon: User },
+      ],
+    },
   ];
-
-  const adminLinks = [
-    { href: "/admin", label: t("nav.admin.dashboard"), icon: LayoutDashboard },
-    ...((user as any)?.role === "super_admin" ? [
-      { href: "/admin/overview", label: "ภาพรวมทุกสาขา", icon: TrendingUp },
-      { href: "/admin/branches", label: "จัดการสาขา", icon: Building2 },
-    ] : []),
-    { href: "/admin/reservations", label: t("nav.admin.reservations"), icon: CalendarDays },
-    { href: "/admin/members", label: t("nav.admin.members"), icon: Users },
-    { href: "/admin/facilities", label: t("nav.admin.facilities"), icon: Building2 },
-    { href: "/admin/instructors", label: t("nav.admin.instructors"), icon: GraduationCap },
-    { href: "/admin/checkin", label: "สแกนเช็คอิน", icon: ScanLine },
-    { href: "/admin/announcements", label: t("nav.admin.announcements"), icon: Bell },
-    { href: "/admin/wallet", label: t("nav.admin.wallet"), icon: Wallet },
-    { href: "/admin/packages", label: t("nav.admin.packages"), icon: Crown },
-    { href: "/admin/products", label: "ผลิตภัณฑ์", icon: ShoppingBag },
-    { href: "/admin/orders", label: "คำสั่งซื้อ", icon: Package, badge: pendingOrders > 0 ? pendingOrders : undefined },
-    { href: "/admin/chat", label: t("nav.admin.chat"), icon: MessageCircle, badge: unreadChat > 0 ? unreadChat : undefined },
-    // AI chat analytics span every branch (flat logs), so only the franchise owner sees them.
-    ...((user as any)?.role === "super_admin" ? [{ href: "/admin/ai-chat", label: "วิเคราะห์แชท AI", icon: Bot }] : []),
-    { href: "/admin/theme", label: "ธีมสีเว็บไซต์", icon: Palette },
-    { href: "/admin/help", label: "ศูนย์ช่วยเหลือ", icon: LifeBuoy, badge: devUnread > 0 ? devUnread : undefined },
-    { href: "/admin/work-plan", label: "วางแผนงาน", icon: ClipboardList },
-    { href: "/admin/attendance", label: "ลงเวลา/กะพนักงาน", icon: Clock },
-    { href: "/admin/leave", label: "คำขอลาพนักงาน", icon: CalendarOff, badge: leavePending > 0 ? leavePending : undefined },
-    { href: "/admin/settings", label: t("nav.admin.settings"), icon: Settings },
-  ];
+  const memberLinks = memberGroups.flatMap((group) => group.links);
 
   const adminGroups = [
     {
@@ -108,14 +103,12 @@ export const Sidebar: FC = () => {
       links: [
         { href: "/admin/members", label: t("nav.admin.members"), icon: Users },
         { href: "/admin/wallet", label: t("nav.admin.wallet"), icon: Wallet },
-        { href: "/admin/packages", label: t("nav.admin.packages"), icon: Crown },
       ],
     },
     {
-      title: "ร้านค้าและคำสั่งซื้อ",
+      title: "การขาย",
       links: [
-        { href: "/admin/products", label: "ผลิตภัณฑ์", icon: ShoppingBag },
-        { href: "/admin/orders", label: "คำสั่งซื้อ", icon: Package, badge: pendingOrders > 0 ? pendingOrders : undefined },
+        { href: "/admin/orders", label: "ระบบการขาย", icon: ShoppingBag, badge: pendingOrders > 0 ? pendingOrders : undefined },
       ],
     },
     {
@@ -163,7 +156,13 @@ export const Sidebar: FC = () => {
     { href: "/profile", label: t("nav.profile"), icon: User },
   ];
 
-  const links = isAdmin ? adminLinks : isInstructor ? instructorLinks : isStaff ? staffLinks : memberLinks;
+  const sidebarGroups = isAdmin
+    ? adminGroups
+    : isInstructor
+      ? [{ title: "งานครูและพนักงาน", links: instructorLinks.slice(0, 4) }, ...memberGroups]
+      : isStaff
+        ? [{ title: "พนักงาน", links: staffLinks }]
+        : memberGroups;
   const initials = user ? `${user.firstName?.[0] || ""}${user.lastName?.[0] || ""}`.toUpperCase() : "U";
   const avatarUrl = (user as any)?.profileImageUrl;
 
@@ -175,7 +174,7 @@ export const Sidebar: FC = () => {
 
       <nav className="flex-1 p-4 space-y-0.5 overflow-y-auto">
         <div className="text-xs font-semibold text-muted-foreground mb-3 px-3">{isAdmin ? "ADMIN" : isInstructor ? "INSTRUCTOR" : isStaff ? "พนักงาน" : "MEMBER"}</div>
-        {isAdmin ? adminGroups.map((group) => (
+        {sidebarGroups.map((group) => (
           <div key={group.title} className="space-y-0.5">
             <div className="px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground/80">
               {group.title}
@@ -205,30 +204,7 @@ export const Sidebar: FC = () => {
               );
             })}
           </div>
-        )) : links.map((link) => {
-          const isActive = location === link.href;
-          const Icon = link.icon;
-          return (
-            <Link key={link.href} href={link.href}>
-              <div className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer",
-                isActive
-                  ? "bg-brand text-white shadow-md shadow-[hsl(var(--glow)/0.35)]"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:translate-x-0.5"
-              )}>
-                <div className={cn("p-1 rounded-lg transition-colors", isActive ? "bg-white/20" : "")}>
-                  <Icon className="w-4 h-4" />
-                </div>
-                <span className="flex-1">{link.label}</span>
-                {(link as any).badge && (
-                  <Badge className="ml-auto bg-red-500 text-white text-xs min-w-5 h-5 flex items-center justify-center rounded-full px-1">
-                    {(link as any).badge}
-                  </Badge>
-                )}
-              </div>
-            </Link>
-          );
-        })}
+        ))}
       </nav>
 
       <div className="p-4 border-t border-sidebar-border space-y-4">

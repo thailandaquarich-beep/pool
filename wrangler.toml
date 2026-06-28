@@ -1,0 +1,3 @@
+name = "pool-reservation"
+pages_build_output_dir = "artifacts/pool-reservation/dist/public"
+compatibility_date = "2026-06-28"

@@ -26,8 +26,15 @@ type Avail = {
   startTime: string;
   endTime: string;
   maxPeople: number;
+  packageId: number | null;
   note: string | null;
   isAvailable: boolean;
+};
+
+type AdminPackage = {
+  id: number;
+  name: string;
+  isActive: boolean;
 };
 
 type ScheduleForm = {
@@ -37,6 +44,7 @@ type ScheduleForm = {
   startTime: string;
   endTime: string;
   maxPeople: string;
+  packageId: string;
   note: string;
   isAvailable: boolean;
 };
@@ -56,6 +64,7 @@ const emptyForm = (): ScheduleForm => ({
   startTime: "17:00",
   endTime: "19:00",
   maxPeople: "5",
+  packageId: "none",
   note: "",
   isAvailable: true,
 });
@@ -93,6 +102,20 @@ export function AdminInstructorScheduleDialog({
     },
   });
 
+  const { data: packages = [] } = useQuery<AdminPackage[]>({
+    queryKey: ["packages", "all"],
+    enabled: open,
+    queryFn: async () => {
+      const res = await fetch(`${baseUrl}/api/packages/all`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const packageNameById = new Map(packages.map((pkg) => [pkg.id, pkg.name]));
+
   useEffect(() => {
     if (open) {
       setForm(emptyForm());
@@ -116,6 +139,7 @@ export function AdminInstructorScheduleDialog({
             startTime: form.startTime,
             endTime: form.endTime,
             maxPeople,
+            packageId: form.packageId === "none" ? null : Number(form.packageId),
             note: form.note,
             isAvailable: form.isAvailable,
           }
@@ -125,6 +149,7 @@ export function AdminInstructorScheduleDialog({
             startTime: form.startTime,
             endTime: form.endTime,
             maxPeople,
+            packageId: form.packageId === "none" ? null : Number(form.packageId),
             note: form.note,
             isAvailable: form.isAvailable,
           };
@@ -179,6 +204,7 @@ export function AdminInstructorScheduleDialog({
       startTime: slot.startTime,
       endTime: slot.endTime,
       maxPeople: String(slot.maxPeople ?? 5),
+      packageId: slot.packageId ? String(slot.packageId) : "none",
       note: slot.note ?? "",
       isAvailable: slot.isAvailable,
     });
@@ -203,7 +229,13 @@ export function AdminInstructorScheduleDialog({
           {slot.isAvailable && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary">รับ {slot.maxPeople ?? 5} คน</span>}
           {!slot.isAvailable && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700">ปิดรับสอน</span>}
         </div>
-        {slot.note && <p className="truncate text-xs text-muted-foreground">{slot.note}</p>}
+        {(slot.packageId || slot.note) && (
+          <p className="truncate text-xs text-muted-foreground">
+            {slot.packageId ? `คอร์ส: ${packageNameById.get(slot.packageId) ?? `#${slot.packageId}`}` : ""}
+            {slot.packageId && slot.note ? " · " : ""}
+            {slot.note ?? ""}
+          </p>
+        )}
       </div>
       <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => edit(slot)} aria-label="แก้ไขเวลาสอน">
         <Pencil className="h-4 w-4" />
@@ -316,6 +348,22 @@ export function AdminInstructorScheduleDialog({
               <div className="space-y-1.5">
                 <Label>หมายเหตุ</Label>
                 <Input value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="เช่น สอนเด็ก / สอนส่วนตัว" />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>คอร์สสำหรับช่วงเวลานี้</Label>
+                <Select value={form.packageId} onValueChange={(v) => setForm((f) => ({ ...f, packageId: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">ไม่ระบุคอร์ส</SelectItem>
+                    {packages.map((pkg) => (
+                      <SelectItem key={pkg.id} value={String(pkg.id)}>
+                        {pkg.name}{pkg.isActive === false ? " (ปิดใช้งาน)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">ถ้าระบุคอร์ส สมาชิกจะใช้ได้เฉพาะแพ็กเกจที่ตรงกับช่วงเวลาครูนี้</p>
               </div>
 
               <label className={cn("flex cursor-pointer items-center justify-between gap-3 rounded-lg border p-3", !form.isAvailable && "border-amber-300 bg-amber-50")}>

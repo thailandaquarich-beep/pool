@@ -20,7 +20,7 @@ type Package = { id: number; name: string; nameEn: string; description?: string;
 
 const empty = (): Omit<Package, "id"> => ({ name: "", nameEn: "", description: "", imageUrl: null, price: 0, durationDays: 30, benefits: "", bookingDiscount: 0, maxBookingsPerMonth: undefined, isActive: true, sortOrder: 0 });
 
-export const AdminPackagesManagement: FC = () => {
+export const AdminPackagesManagement: FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { toast } = useToast();
   const token = localStorage.getItem("pool_token");
   const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -98,12 +98,18 @@ export const AdminPackagesManagement: FC = () => {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="จัดการแพ็กเกจสมาชิก"
-        icon={Crown}
-        gradient="from-amber-400 to-orange-600"
-        actions={<Button onClick={openAdd}><Plus className="w-4 h-4 mr-2" />เพิ่มแพ็กเกจ</Button>}
-      />
+      {embedded ? (
+        <div className="flex justify-end">
+          <Button onClick={openAdd}><Plus className="w-4 h-4 mr-2" />เพิ่มแพ็กเกจ</Button>
+        </div>
+      ) : (
+        <PageHeader
+          title="จัดการแพ็กเกจสมาชิก"
+          icon={Crown}
+          gradient="from-amber-400 to-orange-600"
+          actions={<Button onClick={openAdd}><Plus className="w-4 h-4 mr-2" />เพิ่มแพ็กเกจ</Button>}
+        />
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>

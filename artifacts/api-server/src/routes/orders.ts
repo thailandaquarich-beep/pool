@@ -7,6 +7,7 @@ import { authenticate, requireAdmin, isAdminRole } from "../middlewares/auth.js"
 import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
 import { dataDirs } from "../lib/dataPaths.js";
 import { appendMemberLog } from "../lib/memberLog.js";
+import { memberCode } from "../lib/memberCode.js";
 import { appendEncryptedLine, writeEncryptedFile } from "../lib/cryptoVault.js";
 
 const router = Router();
@@ -216,6 +217,57 @@ router.get("/admin/revenue", authenticate, requireAdmin, attachBranch, async (re
     });
   } catch {
     return res.status(500).json({ error: "Failed to compute revenue" });
+  }
+});
+
+// GET /orders/admin/history — admin: ONE unified purchase history combining product
+// orders + membership-package purchases, newest first, with buyer name + member code.
+// Powers both the on-screen "ประวัติการซื้อ" table and the combined CSV download.
+router.get("/admin/history", authenticate, requireAdmin, attachBranch, async (req, res) => {
+  try {
+    const orders = await db.select().from(ordersTable).where(branchEq(req, ordersTable.branchId));
+    const txns = await db
+      .select()
+      .from(transactionsTable)
+      .where(and(eq(transactionsTable.type, "package_purchase"), branchEq(req, transactionsTable.branchId)));
+
+    const userIds = [...new Set([...orders.map((o) => o.userId), ...txns.map((t) => t.userId)].filter((x): x is number => x != null))];
+    const users = userIds.length ? await db.select().from(usersTable).where(inArray(usersTable.id, userIds)) : [];
+    const byId = new Map(users.map((u) => [u.id, u]));
+
+    type Row = {
+      type: "product" | "package"; typeLabel: string; id: number; createdAt: Date;
+      buyerName: string; memberCode: string; phone: string; itemSummary: string;
+      amount: number; status: string;
+    };
+    const rows: Row[] = [];
+
+    for (const o of orders) {
+      const u = o.userId != null ? byId.get(o.userId) : undefined;
+      let items = "";
+      try { items = JSON.parse(o.items || "[]").map((it: any) => `${it.name}×${it.qty}`).join(", "); } catch { /* ignore */ }
+      rows.push({
+        type: "product", typeLabel: "สินค้า", id: o.id, createdAt: o.createdAt,
+        buyerName: u ? `${u.firstName} ${u.lastName}` : (o.recipientName || "-"),
+        memberCode: u ? memberCode(u.id, u.phone) : "", phone: u?.phone || o.phone || "",
+        itemSummary: items || "-", amount: Number(o.subtotal), status: o.status,
+      });
+    }
+    for (const t of txns) {
+      const u = byId.get(t.userId);
+      rows.push({
+        type: "package", typeLabel: "แพ็กเกจ", id: t.id, createdAt: t.createdAt,
+        buyerName: u ? `${u.firstName} ${u.lastName}` : "-",
+        memberCode: u ? memberCode(u.id, u.phone) : "", phone: u?.phone || "",
+        itemSummary: t.description.replace(/^Admin package:\s*/i, "").trim() || "แพ็กเกจสมาชิก",
+        amount: Number(t.amount), status: t.status,
+      });
+    }
+
+    rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return res.json(rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })));
+  } catch {
+    return res.status(500).json({ error: "Failed to build purchase history" });
   }
 });
 

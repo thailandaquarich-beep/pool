@@ -28,7 +28,7 @@ const statusMap: Record<string, { label: string; cls: string }> = {
 };
 const baht = (n: number) => `฿${n.toLocaleString("th-TH")}`;
 
-export function AdminOrders() {
+export function AdminOrders({ embedded = false }: { embedded?: boolean } = {}) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const token = localStorage.getItem("pool_token");
@@ -39,6 +39,8 @@ export function AdminOrders() {
   const [search, setSearch] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [exportingPackages, setExportingPackages] = useState(false);
+  const [packageReportRange, setPackageReportRange] = useState<"day" | "week" | "month" | "all">("month");
 
   const { data: orders, isLoading } = useQuery<Order[]>({
     queryKey: ["orders", "admin", tab],
@@ -123,11 +125,47 @@ export function AdminOrders() {
     ]);
   };
 
-  return (
-    <div className="p-6 space-y-6">
-      <PageHeader title="คำสั่งซื้อสินค้า" subtitle="ตรวจสอบการชำระเงิน ที่อยู่ และจัดส่ง" icon={Package} gradient="from-fuchsia-400 to-pink-600" />
+  const exportPackagePurchases = async () => {
+    setExportingPackages(true);
+    try {
+      const qs = new URLSearchParams({ range: packageReportRange });
+      if (search.trim()) qs.set("search", search.trim());
 
-      {/* Revenue summary */}
+      const r = await fetch(`${baseUrl}/api/packages/admin/special-report?${qs.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(data?.error || "download failed");
+
+      const rows = data?.rows ?? [];
+      downloadCsv(`package-purchases-${packageReportRange}-${csvStamp()}.csv`, [
+        ["วันที่", "เลขธุรกรรม", "รหัสสมาชิก", "ชื่อผู้ซื้อ", "เบอร์โทร", "รายการ", "ยอดเงิน", "สถานะ", "รายละเอียด"],
+        ...rows.map((row: any) => [
+          row.createdAt ? new Date(row.createdAt).toLocaleString("th-TH") : "",
+          row.transactionId ?? row.id,
+          row.memberCode ?? "",
+          row.buyerName ?? row.memberName ?? "",
+          row.buyerPhone ?? row.phone ?? "",
+          row.itemName ?? row.packageName ?? "",
+          row.amount ?? row.pricePaid ?? 0,
+          row.status ?? "",
+          row.description ?? "",
+        ]),
+      ]);
+      toast({ title: "ดาวน์โหลดรายงานการซื้อแพ็กเกจแล้ว", description: `${rows.length} รายการ` });
+    } catch (e: any) {
+      toast({ title: "ดาวน์โหลดรายงานแพ็กเกจไม่สำเร็จ", description: e?.message, variant: "destructive" });
+    } finally {
+      setExportingPackages(false);
+    }
+  };
+
+  return (
+    <div className={embedded ? "space-y-6" : "p-6 space-y-6"}>
+      {!embedded && <PageHeader title="คำสั่งซื้อสินค้า" subtitle="ตรวจสอบการชำระเงิน ที่อยู่ และจัดส่ง" icon={Package} gradient="from-fuchsia-400 to-pink-600" />}
+
+      {/* Revenue summary — hidden when embedded (the Sales page has a dedicated Report tab) */}
+      {!embedded && (
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
         {[
           { label: "รายได้ทั้งหมด", value: revenue?.totalRevenue ?? 0, icon: TrendingUp, grad: "from-emerald-500 to-green-600" },
@@ -148,8 +186,9 @@ export function AdminOrders() {
           </Card>
         ))}
       </div>
+      )}
 
-      {revenue?.topProducts?.length ? (
+      {!embedded && revenue?.topProducts?.length ? (
         <Card>
           <CardContent className="p-4">
             <div className="text-sm font-semibold mb-2 flex items-center gap-1.5"><Package className="w-4 h-4 text-primary" /> สินค้าขายดี ({revenue.paidOrders} ออเดอร์ที่ชำระแล้ว)</div>
@@ -165,7 +204,7 @@ export function AdminOrders() {
         </Card>
       ) : null}
 
-      {revenue?.topPackages?.length ? (
+      {!embedded && revenue?.topPackages?.length ? (
         <Card>
           <CardContent className="p-4">
             <div className="text-sm font-semibold mb-2 flex items-center gap-1.5"><Ticket className="w-4 h-4 text-primary" /> แพ็กเกจขายดี / แพ็กเกจพิเศษ</div>
@@ -200,6 +239,24 @@ export function AdminOrders() {
             <Button variant="outline" className="gap-1.5" onClick={exportSales} disabled={!filteredOrders.length}>
               <Download className="h-4 w-4" /> ดาวน์โหลดรายงานยอดขาย
             </Button>
+            {!embedded && (
+              <>
+                <select
+                  className="h-9 rounded-md border bg-background px-3 text-sm"
+                  value={packageReportRange}
+                  onChange={(e) => setPackageReportRange(e.target.value as any)}
+                  data-testid="package-report-range"
+                >
+                  <option value="day">รายวัน</option>
+                  <option value="week">รายสัปดาห์</option>
+                  <option value="month">รายเดือน</option>
+                  <option value="all">ทั้งหมด</option>
+                </select>
+                <Button variant="outline" className="gap-1.5" onClick={exportPackagePurchases} disabled={exportingPackages} data-testid="export-package-purchases">
+                  <Ticket className="h-4 w-4" /> {exportingPackages ? "กำลังดาวน์โหลด..." : "รายงานการซื้อแพ็กเกจ"}
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
         <TabsContent value={tab}>
