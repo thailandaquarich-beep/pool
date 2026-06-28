@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -787,11 +788,20 @@ export function AdminMembers() {
               <div className="text-sm text-muted-foreground p-6 text-center border border-dashed rounded-2xl">ยังไม่มีประวัติคอร์ส</div>
             ) : (
               historyPackages.map((mp) => (
-                <div key={mp.id} className="rounded-2xl border border-border p-4 flex flex-col md:flex-row md:items-center gap-3">
+                <div key={mp.id} className={cn("rounded-2xl border p-4 flex flex-col md:flex-row md:items-center gap-3", mp.isExpired ? "border-rose-200 bg-rose-50/40 dark:border-rose-900/40 dark:bg-rose-950/10" : "border-border")}>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold truncate">{mp.package.name}</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold truncate">{mp.package.name}</span>
+                      {mp.status === "cancelled" ? (
+                        <Badge variant="secondary" className="text-[10px]">ซ่อน/ยกเลิก</Badge>
+                      ) : mp.isExpired ? (
+                        <Badge className="bg-rose-500 hover:bg-rose-600 text-white text-[10px]">หมดอายุแล้ว</Badge>
+                      ) : (
+                        <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white text-[10px]">ใช้งานได้</Badge>
+                      )}
+                    </div>
                     <div className="text-xs text-muted-foreground">
-                      ใช้ไป {mp.bookingsUsed}/{mp.package.maxBookingsPerMonth ?? "ไม่จำกัด"} • หมดอายุ {new Date(mp.endDate).toLocaleDateString("th-TH")} • ฿{Number(mp.pricePaid).toLocaleString("th-TH")}
+                      ใช้ไป {mp.bookingsUsed}/{mp.package.maxBookingsPerMonth ?? "ไม่จำกัด"} • {mp.isExpired ? "หมดอายุแล้วเมื่อ" : "หมดอายุ"} {new Date(mp.endDate).toLocaleDateString("th-TH")} • ฿{Number(mp.pricePaid).toLocaleString("th-TH")}
                     </div>
                     <div className="text-[11px] text-muted-foreground">เติมเมื่อ {new Date(mp.createdAt).toLocaleString("th-TH")}</div>
                   </div>

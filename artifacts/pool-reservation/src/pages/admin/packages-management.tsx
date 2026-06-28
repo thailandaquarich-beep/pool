@@ -11,14 +11,17 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Crown, Calendar, Percent, Trash2 } from "lucide-react";
+import { Plus, Pencil, Crown, Calendar, Percent, Trash2, Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-header";
 import { ImageUpload } from "@/components/image-upload";
 
-type Package = { id: number; name: string; nameEn: string; description?: string; imageUrl?: string | null; price: number; durationDays: number; benefits?: string; bookingDiscount: number; maxBookingsPerMonth?: number; isActive: boolean; sortOrder: number };
+type Package = { id: number; name: string; nameEn: string; category?: string | null; description?: string; imageUrl?: string | null; price: number; durationDays: number; benefits?: string; bookingDiscount: number; maxBookingsPerMonth?: number; isActive: boolean; sortOrder: number };
 
-const empty = (): Omit<Package, "id"> => ({ name: "", nameEn: "", description: "", imageUrl: null, price: 0, durationDays: 30, benefits: "", bookingDiscount: 0, maxBookingsPerMonth: undefined, isActive: true, sortOrder: 0 });
+// Activity categories — must match the instructor course picker so the two stay in sync.
+export const PACKAGE_CATEGORIES = ["ว่ายน้ำ", "แอโรบิคในน้ำ", "ฟิตเนส", "อื่นๆ"] as const;
+
+const empty = (): Omit<Package, "id"> => ({ name: "", nameEn: "", category: "ว่ายน้ำ", description: "", imageUrl: null, price: 0, durationDays: 30, benefits: "", bookingDiscount: 0, maxBookingsPerMonth: undefined, isActive: true, sortOrder: 0 });
 
 export const AdminPackagesManagement: FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { toast } = useToast();
@@ -131,7 +134,10 @@ export const AdminPackagesManagement: FC<{ embedded?: boolean }> = ({ embedded =
               <CardContent className="p-5 space-y-3">
                 <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="font-bold">{pkg.name}</h3>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h3 className="font-bold">{pkg.name}</h3>
+                      {pkg.category && <Badge variant="outline" className="text-[10px]">{pkg.category}</Badge>}
+                    </div>
                     <p className="text-xs text-muted-foreground">{pkg.nameEn}</p>
                   </div>
                   <Badge variant={pkg.isActive ? "default" : "secondary"}>{pkg.isActive ? "ใช้งาน" : "ปิด"}</Badge>
@@ -156,6 +162,25 @@ export const AdminPackagesManagement: FC<{ embedded?: boolean }> = ({ embedded =
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{dialog === "edit" ? "แก้ไขแพ็กเกจ" : "เพิ่มแพ็กเกจใหม่"}</DialogTitle></DialogHeader>
           <div className="space-y-3">
+            {/* Step 1: pick the activity category first */}
+            <div>
+              <Label>เลือกหมวดหมู่ (ประเภทกิจกรรม)</Label>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {PACKAGE_CATEGORIES.map((cat) => {
+                  const active = (form.category || "") === cat;
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setForm((p) => ({ ...p, category: cat }))}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${active ? "border-primary bg-primary text-primary-foreground" : "border-input bg-background hover:border-primary/50"}`}
+                    >
+                      {active && <Check className="w-3.5 h-3.5" />}{cat}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             {([["name", "ชื่อ (ภาษาไทย)"], ["nameEn", "ชื่อ (English)"]] as const).map(([k, label]) => (
               <div key={k}><Label>{label}</Label><Input value={form[k] as string} onChange={f(k)} className="mt-1" /></div>
             ))}

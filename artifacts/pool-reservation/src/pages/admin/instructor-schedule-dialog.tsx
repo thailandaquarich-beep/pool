@@ -34,6 +34,7 @@ type Avail = {
 type AdminPackage = {
   id: number;
   name: string;
+  category?: string | null;
   isActive: boolean;
 };
 
@@ -358,7 +359,7 @@ export function AdminInstructorScheduleDialog({
                     <SelectItem value="none">ไม่ระบุคอร์ส</SelectItem>
                     {packages.map((pkg) => (
                       <SelectItem key={pkg.id} value={String(pkg.id)}>
-                        {pkg.name}{pkg.isActive === false ? " (ปิดใช้งาน)" : ""}
+                        {pkg.category ? `[${pkg.category}] ` : ""}{pkg.name}{pkg.isActive === false ? " (ปิดใช้งาน)" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>

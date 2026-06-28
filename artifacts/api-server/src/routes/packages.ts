@@ -139,9 +139,9 @@ router.get("/admin/special-report", authenticate, requireAdmin, attachBranch, as
 // POST /packages — admin: create
 router.post("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {
-    const { name, nameEn, description, descriptionEn, imageUrl, price, durationDays, benefits, benefitsEn, maxBookingsPerMonth, bookingDiscount, sortOrder } = req.body;
+    const { name, nameEn, category, description, descriptionEn, imageUrl, price, durationDays, benefits, benefitsEn, maxBookingsPerMonth, bookingDiscount, sortOrder } = req.body;
     const [pkg] = await db.insert(membershipPackagesTable).values({
-      name, nameEn: nameEn || name, description, descriptionEn, imageUrl, price: String(price), durationDays,
+      name, nameEn: nameEn || name, category: category || null, description, descriptionEn, imageUrl, price: String(price), durationDays,
       benefits, benefitsEn, maxBookingsPerMonth, bookingDiscount: String(bookingDiscount || 0), sortOrder: sortOrder || 0,
       branchId: newRowBranch(req),
     }).returning();
@@ -155,10 +155,11 @@ router.post("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
 router.patch("/:id", authenticate, requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { name, nameEn, description, descriptionEn, imageUrl, price, durationDays, benefits, benefitsEn, maxBookingsPerMonth, bookingDiscount, isActive, sortOrder } = req.body;
+    const { name, nameEn, category, description, descriptionEn, imageUrl, price, durationDays, benefits, benefitsEn, maxBookingsPerMonth, bookingDiscount, isActive, sortOrder } = req.body;
     const updates: any = {};
     if (name !== undefined) updates.name = name;
     if (nameEn !== undefined) updates.nameEn = nameEn;
+    if (category !== undefined) updates.category = category || null;
     if (description !== undefined) updates.description = description;
     if (descriptionEn !== undefined) updates.descriptionEn = descriptionEn;
     if (imageUrl !== undefined) updates.imageUrl = imageUrl;

@@ -4,6 +4,9 @@ export const membershipPackagesTable = pgTable("membership_packages", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   nameEn: text("name_en").notNull(),
+  // Activity category (ว่ายน้ำ / แอโรบิคในน้ำ / ฟิตเนส / อื่นๆ). Groups packages and
+  // filters the course picker in the instructor teaching system.
+  category: text("category"),
   description: text("description"),
   descriptionEn: text("description_en"),
   imageUrl: text("image_url"),
