@@ -11,7 +11,7 @@ interface AppLayoutProps {
 }
 
 export const AppLayout: FC<AppLayoutProps> = ({ children }) => {
-  const { isAuthenticated, isAdmin } = useAuth();
+  const { isAuthenticated, isAdmin, isInstructor } = useAuth();
   const [location] = useLocation();
   const mainRef = useRef<HTMLElement>(null);
 
@@ -41,7 +41,8 @@ export const AppLayout: FC<AppLayoutProps> = ({ children }) => {
           </div>
         </main>
       </div>
-      <AssistantWidget />
+      {/* น้องอควา: visible to admin + instructor only for now (hidden from members). */}
+      {(isAdmin || isInstructor) && <AssistantWidget />}
     </div>
   );
 };

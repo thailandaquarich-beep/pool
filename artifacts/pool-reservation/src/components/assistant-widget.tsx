@@ -15,7 +15,7 @@ const GUEST_KEY = "aqua_chat_guest";
 const HISTORY_MAX = 50;
 const apiBase = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-const SUGGESTIONS = ["การจองของฉันวันไหน", "ยอดเงินเหลือเท่าไหร่", "สระเปิดกี่โมง", "แพ็กเกจมีอะไรบ้าง"];
+const SUGGESTIONS = ["ตารางสอนวันนี้", "ครูฝึกมีใครบ้าง", "แพ็กเกจมีอะไรบ้าง", "สระเปิดกี่โมง"];
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -240,8 +240,8 @@ export const AssistantWidget: FC = () => {
               <div className="flex flex-col items-center text-center gap-3 py-6 px-2">
                 <AquaAvatar className="w-16 h-16 shadow-lg" />
                 <div>
-                  <p className="font-semibold text-sm">สวัสดีค่ะ 🌊 น้องอควายินดีช่วยเหลือ</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">ถามเรื่องการจอง ยอดเงิน แพ็กเกจ หรือเวลาเปิด-ปิดได้เลยค่ะ</p>
+                  <p className="font-semibold text-sm">สวัสดีค่ะ 🌊 น้องอควาพร้อมช่วยงาน</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">ถามเรื่องตารางสอน ครูฝึก แพ็กเกจ สมาชิก หรือข้อมูลคลับได้เลยค่ะ</p>
                 </div>
                 <div className="flex flex-wrap justify-center gap-1.5 pt-1">
                   {SUGGESTIONS.map((q) => (
