@@ -77,10 +77,16 @@ function SalesReport() {
     },
   });
   const [histSearch, setHistSearch] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const filteredHistory = (history ?? []).filter((h) => {
     const q = histSearch.trim().toLowerCase();
-    if (!q) return true;
-    return [h.buyerName, h.memberCode, h.phone, h.itemSummary, h.typeLabel].join(" ").toLowerCase().includes(q);
+    if (q && ![h.buyerName, h.memberCode, h.phone, h.itemSummary, h.typeLabel].join(" ").toLowerCase().includes(q)) return false;
+    // Date range filter (compare on the local YYYY-MM-DD of the purchase).
+    const day = new Date(h.createdAt).toLocaleDateString("en-CA");
+    if (fromDate && day < fromDate) return false;
+    if (toDate && day > toDate) return false;
+    return true;
   });
 
   const exportHistory = () => {
@@ -217,6 +223,14 @@ function SalesReport() {
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input value={histSearch} onChange={(e) => setHistSearch(e.target.value)} placeholder="ค้นหาชื่อ/เบอร์/รายการ" className="h-9 w-52 pl-8" />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="h-9 w-auto" title="จากวันที่" />
+                <span className="text-muted-foreground text-sm">–</span>
+                <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="h-9 w-auto" title="ถึงวันที่" />
+                {(fromDate || toDate) && (
+                  <Button variant="ghost" size="sm" className="h-9 px-2 text-xs" onClick={() => { setFromDate(""); setToDate(""); }}>ล้างวันที่</Button>
+                )}
               </div>
               <Button variant="outline" className="gap-1.5" onClick={exportHistory} disabled={!filteredHistory.length} data-testid="export-purchase-history">
                 <Download className="h-4 w-4" /> ดาวน์โหลดประวัติการซื้อ (CSV)
