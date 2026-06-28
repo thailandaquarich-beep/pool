@@ -25,6 +25,7 @@ const Profile = lazy(() => import("@/pages/profile").then((m) => ({ default: m.P
 const WalletPage = lazy(() => import("@/pages/wallet").then((m) => ({ default: m.WalletPage })));
 const Topup = lazy(() => import("@/pages/topup").then((m) => ({ default: m.Topup })));
 const Packages = lazy(() => import("@/pages/packages").then((m) => ({ default: m.Packages })));
+const MyPackages = lazy(() => import("@/pages/my-packages").then((m) => ({ default: m.MyPackages })));
 const Products = lazy(() => import("@/pages/products").then((m) => ({ default: m.Products })));
 const Services = lazy(() => import("@/pages/services").then((m) => ({ default: m.Services })));
 const Cart = lazy(() => import("@/pages/cart").then((m) => ({ default: m.Cart })));
@@ -113,6 +114,7 @@ function Router() {
         <Route path="/wallet"><ProtectedRoute component={WalletPage} /></Route>
         <Route path="/topup"><ProtectedRoute component={Topup} /></Route>
         <Route path="/packages"><ProtectedRoute component={Packages} /></Route>
+        <Route path="/my-packages"><ProtectedRoute component={MyPackages} /></Route>
         <Route path="/products"><ProtectedRoute component={Products} /></Route>
         <Route path="/services"><ProtectedRoute component={Services} /></Route>
         <Route path="/cart"><ProtectedRoute component={Cart} /></Route>

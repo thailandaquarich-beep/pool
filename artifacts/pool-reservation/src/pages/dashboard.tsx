@@ -94,9 +94,9 @@ export const Dashboard: FC = () => {
     {
       label: "สิทธิ์คงเหลือ",
       value: remaining === null ? "ไม่จำกัด" : `${remaining} ครั้ง`,
-      detail: "แตะเพื่อดูประวัติแพ็กเกจสมาชิก / การใช้งาน",
+      detail: "แตะเพื่อดูแพ็กเกจคงเหลือ / ประวัติการใช้งาน",
       icon: Ticket,
-      href: "/packages",
+      href: "/my-packages",
       tone: "text-[#0f8f7e] bg-[#e8f8f4]",
     },
     {
