@@ -550,10 +550,10 @@ router.get("/my/history", authenticate, async (req, res) => {
 // GET /packages/my-usage — member: active packages with remaining quota (uses left)
 router.get("/my-usage", authenticate, async (req, res) => {
   try {
-    // Include expired packages that still have uses left, so a paid session-course
-    // ("X ครั้ง") isn't hidden just because its date lapsed — the member can still use
-    // the sessions they paid for. The UI labels them "หมดอายุ".
-    const usages = await getActiveUsages(db, req.user!.userId, { includeExpired: true });
+    // Members may only book with NON-expired packages. Expired courses are excluded
+    // here so they never appear as bookable on the member side (admin desk has its own
+    // override for honoring a paid-but-lapsed course).
+    const usages = await getActiveUsages(db, req.user!.userId);
     const hasUnlimited = usages.some((u) => u.remaining === null);
     const totalRemaining = hasUnlimited ? null : usages.reduce((s, u) => s + (u.remaining ?? 0), 0);
     // Best booking discount across active packages (สิทธิ์ส่วนลดที่ดีที่สุด)

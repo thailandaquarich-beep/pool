@@ -469,13 +469,13 @@ router.post("/", authenticate, attachBranch, async (req, res) => {
       return res.status(400).json({ error: "กรุณาเลือกแพ็กเกจที่จะใช้จอง", needPackage: true });
     }
 
-    // Must hold the selected package with remaining quota to book. Expired packages
-    // that still have uses left are allowed (a paid session-course isn't lost on its date).
-    const activeUsages = await getActiveUsages(db, userId, { includeExpired: true });
+    // Must hold the selected ACTIVE (non-expired) package with remaining quota to book.
+    // Expired packages are not returned here, so booking with one is rejected.
+    const activeUsages = await getActiveUsages(db, userId);
     const selectedUsage = activeUsages.find((u) => u.memberPackage.id === selectedMemberPackageId);
-    if (!selectedUsage || (selectedUsage.remaining !== null && selectedUsage.remaining <= 0)) {
+    if (!selectedUsage || selectedUsage.expired || (selectedUsage.remaining !== null && selectedUsage.remaining <= 0)) {
       return res.status(400).json({
-        error: "แพ็กเกจที่เลือกใช้ไม่ได้ หรือจำนวนครั้งคงเหลือหมด กรุณาเลือกแพ็กเกจใหม่",
+        error: "แพ็กเกจที่เลือกใช้ไม่ได้ หมดอายุ หรือจำนวนครั้งคงเหลือหมด กรุณาเลือกแพ็กเกจใหม่",
         needPackage: true,
       });
     }
@@ -508,7 +508,6 @@ router.post("/", authenticate, attachBranch, async (req, res) => {
           source: "booking",
           reservationId: r.id,
           memberPackageId: selectedMemberPackageId,
-          allowExpired: true,
           note: `จอง ${date} ${startTime}-${endTime} ด้วยแพ็กเกจ ${selectedUsage.package.name}`,
         });
         const [r2] = await tx.update(reservationsTable).set({ memberPackageId: consumed.memberPackageId }).where(eq(reservationsTable.id, r.id)).returning();

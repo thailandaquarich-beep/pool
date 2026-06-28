@@ -191,7 +191,8 @@ export const Book: FC = () => {
   const remaining = usage?.totalRemaining ?? null; // null = unlimited
   const hasQuota = usage?.hasQuota ?? false;
   const hasActivePackage = usage?.hasActivePackage ?? false;
-  const usablePackages = (usage?.packages ?? []).filter((pkg) => pkg.remaining === null || pkg.remaining > 0);
+  // Members can only book with a non-expired package that still has uses left.
+  const usablePackages = (usage?.packages ?? []).filter((pkg) => !pkg.expired && (pkg.remaining === null || pkg.remaining > 0));
   const requiredPackageId = selectedTeacherSlot?.packageId ?? null;
   const bookingPackages = requiredPackageId
     ? usablePackages.filter((pkg) => pkg.packageId === requiredPackageId)
