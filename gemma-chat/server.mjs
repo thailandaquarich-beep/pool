@@ -13,8 +13,11 @@ const API = process.env.API_BASE || "http://127.0.0.1:5000/api"; // Aquarich bac
 const PORT = Number(process.env.PORT || 8787);
 const ADMIN_KEY = process.env.ADMIN_KEY || "admin";
 const MODEL = process.env.MODEL || "scb10x/typhoon2.5-qwen3-4b";
-const GEN_OPTIONS = { num_ctx: 6144, num_predict: 220, temperature: 0.25, top_p: 0.85, repeat_penalty: 1.05 };
-const HISTORY_MAX = 16;
+// Tuned for a warm, human-sounding Thai assistant that remembers the conversation.
+// Balance: bigger ctx + more history for continuity ("ต่อแถวคุย"), warmer temperature for
+// natural replies, but a tight num_predict so answers finish fast ("ตอบไว").
+const GEN_OPTIONS = { num_ctx: 8192, num_predict: 220, temperature: 0.4, top_p: 0.9, repeat_penalty: 1.08 };
+const HISTORY_MAX = 20;
 const HISTORY_ITEM_MAX = 2400;
 // Conversations are backed up here (shared with the Aquarich data folder so they're
 // included in backups and readable by the admin analytics API).
