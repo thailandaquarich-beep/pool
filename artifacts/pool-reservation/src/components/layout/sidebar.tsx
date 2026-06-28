@@ -99,7 +99,7 @@ export const Sidebar: FC = () => {
       ],
     },
     {
-      title: "สมาชิกและแพ็กเกจ",
+      title: "สมาชิกและกระเป๋าเงิน",
       links: [
         { href: "/admin/members", label: t("nav.admin.members"), icon: Users },
         { href: "/admin/wallet", label: t("nav.admin.wallet"), icon: Wallet },
