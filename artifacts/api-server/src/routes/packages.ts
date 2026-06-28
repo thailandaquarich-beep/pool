@@ -136,6 +136,56 @@ router.get("/admin/special-report", authenticate, requireAdmin, attachBranch, as
   }
 });
 
+// ---- Activity categories (custom, admin-managed) — MUST be above "/:id" routes ----
+const DEFAULT_PACKAGE_CATEGORIES = ["ว่ายน้ำ", "แอโรบิคในน้ำ", "ฟิตเนส", "อื่นๆ"];
+
+// GET /packages/categories — the category list = built-in defaults + any custom ones
+// already used by a package (branch-scoped). Powers the package form + course pickers.
+router.get("/categories", authenticate, attachBranch, async (req, res) => {
+  try {
+    const rows = await db
+      .select({ category: membershipPackagesTable.category })
+      .from(membershipPackagesTable)
+      .where(branchEq(req, membershipPackagesTable.branchId));
+    const used = rows.map((r) => (r.category || "").trim()).filter(Boolean);
+    return res.json([...new Set([...DEFAULT_PACKAGE_CATEGORIES, ...used])]);
+  } catch {
+    return res.status(500).json({ error: "Failed to list categories" });
+  }
+});
+
+// PATCH /packages/categories — admin: rename a category across all its packages.
+router.patch("/categories", authenticate, requireAdmin, attachBranch, async (req, res) => {
+  try {
+    const from = String(req.body?.from || "").trim();
+    const to = String(req.body?.to || "").trim();
+    if (!from || !to) return res.status(400).json({ error: "ต้องระบุชื่อเดิมและชื่อใหม่" });
+    if (from === to) return res.json({ ok: true });
+    await db
+      .update(membershipPackagesTable)
+      .set({ category: to })
+      .where(and(eq(membershipPackagesTable.category, from), branchEq(req, membershipPackagesTable.branchId)));
+    return res.json({ ok: true });
+  } catch {
+    return res.status(500).json({ error: "Failed to rename category" });
+  }
+});
+
+// DELETE /packages/categories — admin: remove a category (clears it off its packages).
+router.delete("/categories", authenticate, requireAdmin, attachBranch, async (req, res) => {
+  try {
+    const name = String(req.body?.name || "").trim();
+    if (!name) return res.status(400).json({ error: "ต้องระบุชื่อหมวดหมู่" });
+    await db
+      .update(membershipPackagesTable)
+      .set({ category: null })
+      .where(and(eq(membershipPackagesTable.category, name), branchEq(req, membershipPackagesTable.branchId)));
+    return res.json({ ok: true });
+  } catch {
+    return res.status(500).json({ error: "Failed to delete category" });
+  }
+});
+
 // POST /packages — admin: create
 router.post("/", authenticate, requireAdmin, attachBranch, async (req, res) => {
   try {

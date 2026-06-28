@@ -48,8 +48,8 @@ export const Sidebar: FC = () => {
         { href: "/dashboard", label: "ภาพรวมสมาชิก", icon: LayoutDashboard },
         { href: "/book", label: "จองคลาส/สระ", icon: CalendarPlus },
         { href: "/reservations", label: "การจองของฉัน", icon: CalendarDays },
-        { href: "/calendar", label: "ปฏิทินคลาส", icon: Calendar },
-        { href: "/instructors", label: "ครูฝึก", icon: GraduationCap },
+        { href: "/calendar", label: "ปฏิทินครูฝึก", icon: Calendar },
+        { href: "/instructors", label: "ครูฝึก (โปรไฟล์)", icon: GraduationCap },
       ],
     },
     {

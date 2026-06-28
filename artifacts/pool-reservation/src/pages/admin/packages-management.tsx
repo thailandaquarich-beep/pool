@@ -36,6 +36,10 @@ export const AdminPackagesManagement: FC<{ embedded?: boolean }> = ({ embedded =
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Package | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [categories, setCategories] = useState<string[]>([...PACKAGE_CATEGORIES]);
+  const [newCategory, setNewCategory] = useState("");
+  const [manageCats, setManageCats] = useState(false);
+  const [editCat, setEditCat] = useState<{ from: string; to: string } | null>(null);
 
   const fetchPackages = async () => {
     setLoading(true);
@@ -44,7 +48,46 @@ export const AdminPackagesManagement: FC<{ embedded?: boolean }> = ({ embedded =
     setLoading(false);
   };
 
-  useEffect(() => { fetchPackages(); }, []);
+  const fetchCategories = async () => {
+    const res = await fetch(`${baseUrl}/api/packages/categories`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) {
+      const list = await res.json();
+      if (Array.isArray(list) && list.length) setCategories(list);
+    }
+  };
+
+  // Add a typed category to the local picker (persists once a package uses it).
+  const addCategory = () => {
+    const c = newCategory.trim();
+    if (!c) return;
+    if (!categories.includes(c)) setCategories((prev) => [...prev, c]);
+    setForm((p) => ({ ...p, category: c }));
+    setNewCategory("");
+  };
+
+  const renameCategory = async (from: string, to: string) => {
+    const next = to.trim();
+    if (!next || next === from) return;
+    const res = await fetch(`${baseUrl}/api/packages/categories`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ from, to: next }),
+    });
+    if (res.ok) { toast({ title: "เปลี่ยนชื่อหมวดหมู่แล้ว" }); await Promise.all([fetchCategories(), fetchPackages()]); }
+    else toast({ title: "เปลี่ยนชื่อไม่สำเร็จ", variant: "destructive" });
+  };
+
+  const deleteCategory = async (name: string) => {
+    const res = await fetch(`${baseUrl}/api/packages/categories`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name }),
+    });
+    if (res.ok) { toast({ title: "ลบหมวดหมู่แล้ว" }); setCategories((prev) => prev.filter((c) => c !== name)); await fetchPackages(); }
+    else toast({ title: "ลบไม่สำเร็จ", variant: "destructive" });
+  };
+
+  useEffect(() => { fetchPackages(); fetchCategories(); }, []);
 
   const openAdd = () => { setForm(empty()); setDialog("add"); };
   const openEdit = (pkg: Package) => { setForm({ ...pkg }); setEditId(pkg.id); setDialog("edit"); };
@@ -162,11 +205,14 @@ export const AdminPackagesManagement: FC<{ embedded?: boolean }> = ({ embedded =
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{dialog === "edit" ? "แก้ไขแพ็กเกจ" : "เพิ่มแพ็กเกจใหม่"}</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            {/* Step 1: pick the activity category first */}
+            {/* Step 1: pick the activity category first (or type a new one) */}
             <div>
-              <Label>เลือกหมวดหมู่ (ประเภทกิจกรรม)</Label>
+              <div className="flex items-center justify-between">
+                <Label>เลือกหมวดหมู่ (ประเภทกิจกรรม)</Label>
+                <button type="button" onClick={() => setManageCats(true)} className="text-xs text-primary hover:underline">จัดการหมวดหมู่</button>
+              </div>
               <div className="mt-1.5 flex flex-wrap gap-2">
-                {PACKAGE_CATEGORIES.map((cat) => {
+                {categories.map((cat) => {
                   const active = (form.category || "") === cat;
                   return (
                     <button
@@ -179,6 +225,18 @@ export const AdminPackagesManagement: FC<{ embedded?: boolean }> = ({ embedded =
                     </button>
                   );
                 })}
+              </div>
+              <div className="mt-2 flex gap-2">
+                <Input
+                  value={newCategory}
+                  onChange={(e) => setNewCategory(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCategory(); } }}
+                  placeholder="พิมพ์เพิ่มหมวดหมู่ใหม่..."
+                  className="h-9"
+                />
+                <Button type="button" variant="outline" className="shrink-0 h-9" disabled={!newCategory.trim()} onClick={addCategory}>
+                  <Plus className="w-4 h-4 mr-1" />เพิ่ม
+                </Button>
               </div>
             </div>
             {([["name", "ชื่อ (ภาษาไทย)"], ["nameEn", "ชื่อ (English)"]] as const).map(([k, label]) => (
@@ -229,6 +287,41 @@ export const AdminPackagesManagement: FC<{ embedded?: boolean }> = ({ embedded =
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Manage categories (rename/delete custom ones; defaults are fixed) */}
+      <Dialog open={manageCats} onOpenChange={(o) => { if (!o) { setManageCats(false); setEditCat(null); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>จัดการหมวดหมู่</DialogTitle></DialogHeader>
+          <div className="space-y-2">
+            {categories.map((cat) => {
+              const isDefault = (PACKAGE_CATEGORIES as readonly string[]).includes(cat);
+              const editing = editCat?.from === cat;
+              return (
+                <div key={cat} className="flex items-center gap-2 rounded-xl border p-2.5">
+                  {editing ? (
+                    <>
+                      <Input value={editCat!.to} autoFocus onChange={(e) => setEditCat({ from: cat, to: e.target.value })} className="h-9" />
+                      <Button size="sm" className="shrink-0" onClick={async () => { await renameCategory(cat, editCat!.to); setEditCat(null); }}>บันทึก</Button>
+                      <Button size="sm" variant="ghost" className="shrink-0" onClick={() => setEditCat(null)}>ยกเลิก</Button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1 text-sm font-medium">{cat}{isDefault && <span className="ml-1.5 text-[10px] text-muted-foreground">(ค่าเริ่มต้น)</span>}</span>
+                      {!isDefault && (
+                        <>
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditCat({ from: cat, to: cat })}><Pencil className="w-4 h-4" /></Button>
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => deleteCategory(cat)}><Trash2 className="w-4 h-4" /></Button>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+            <p className="text-[11px] text-muted-foreground pt-1">หมวดค่าเริ่มต้นแก้/ลบไม่ได้ · การลบหมวดจะล้างหมวดออกจากแพ็กเกจที่ใช้อยู่ · เพิ่มหมวดใหม่ได้ในฟอร์มสร้างแพ็กเกจ</p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
