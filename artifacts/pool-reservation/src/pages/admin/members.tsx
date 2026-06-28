@@ -11,7 +11,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -290,24 +289,6 @@ export function AdminMembers() {
     onError: (e: any) => toast({ title: "เติมคอร์สไม่สำเร็จ", description: e?.message, variant: "destructive" }),
   });
 
-  const updateMemberPackageMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: any }) => {
-      const res = await fetch(`${baseUrl}/api/packages/admin/member-packages/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(data),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "แก้ไขคอร์สไม่สำเร็จ");
-      return json;
-    },
-    onSuccess: () => {
-      toast({ title: "อัปเดตคอร์สสมาชิกแล้ว" });
-      invalidate();
-      qc.invalidateQueries({ queryKey: ["admin", "member-packages", packageUser?.id] });
-    },
-    onError: (e: any) => toast({ title: "แก้ไขคอร์สไม่สำเร็จ", description: e?.message, variant: "destructive" }),
-  });
 
   // Promote a member to instructor in one idempotent backend call (sets role=instructor
   // first, then links/creates their instructor profile — never fails on a duplicate email).
@@ -788,31 +769,28 @@ export function AdminMembers() {
               <div className="text-sm text-muted-foreground p-6 text-center border border-dashed rounded-2xl">ยังไม่มีประวัติคอร์ส</div>
             ) : (
               historyPackages.map((mp) => (
-                <div key={mp.id} className={cn("rounded-2xl border p-4 flex flex-col md:flex-row md:items-center gap-3", mp.isExpired ? "border-rose-200 bg-rose-50/40 dark:border-rose-900/40 dark:bg-rose-950/10" : "border-border")}>
+                <div key={mp.id} className={cn("rounded-2xl border p-4 flex items-center gap-3", mp.isExpired ? "border-rose-200 bg-rose-50/40 dark:border-rose-900/40 dark:bg-rose-950/10" : "border-border")}>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold truncate">{mp.package.name}</span>
-                      {mp.status === "cancelled" ? (
-                        <Badge variant="secondary" className="text-[10px]">ซ่อน/ยกเลิก</Badge>
-                      ) : mp.isExpired ? (
-                        <Badge className="bg-rose-500 hover:bg-rose-600 text-white text-[10px]">หมดอายุแล้ว</Badge>
-                      ) : (
-                        <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white text-[10px]">ใช้งานได้</Badge>
-                      )}
-                    </div>
+                    <div className="font-semibold truncate">{mp.package.name}</div>
                     <div className="text-xs text-muted-foreground">
                       ใช้ไป {mp.bookingsUsed}/{mp.package.maxBookingsPerMonth ?? "ไม่จำกัด"} • {mp.isExpired ? "หมดอายุแล้วเมื่อ" : "หมดอายุ"} {new Date(mp.endDate).toLocaleDateString("th-TH")} • ฿{Number(mp.pricePaid).toLocaleString("th-TH")}
                     </div>
                     <div className="text-[11px] text-muted-foreground">เติมเมื่อ {new Date(mp.createdAt).toLocaleString("th-TH")}</div>
                   </div>
-                  <Select value={mp.status} onValueChange={(status) => updateMemberPackageMutation.mutate({ id: mp.id, data: { status } })}>
-                    <SelectTrigger className="w-full md:w-36"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="active">ใช้งานได้</SelectItem>
-                      <SelectItem value="expired">หมดอายุ</SelectItem>
-                      <SelectItem value="cancelled">ซ่อน/ยกเลิก</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  {/* Status is shown (not editable) — reflects the real state automatically. */}
+                  {mp.status === "cancelled" ? (
+                    <span className="shrink-0 inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-xs font-semibold text-muted-foreground">
+                      <span className="h-2 w-2 rounded-full bg-muted-foreground/50" /> ซ่อน/ยกเลิก
+                    </span>
+                  ) : mp.isExpired ? (
+                    <span className="shrink-0 inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-3 py-1.5 text-xs font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                      <span className="h-2 w-2 rounded-full bg-rose-500" /> หมดอายุแล้ว
+                    </span>
+                  ) : (
+                    <span className="shrink-0 inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" /> ใช้งานได้
+                    </span>
+                  )}
                 </div>
               ))
             )}
