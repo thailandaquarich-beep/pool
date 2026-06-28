@@ -1,11 +1,12 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { db, usersTable, memberPackagesTable, membershipPackagesTable, packageUsagesTable, reservationsTable } from "@workspace/db";
-import { eq, or, ilike, sql, and, inArray, gte } from "drizzle-orm";
+import { eq, or, ilike, sql, and, inArray, gte, ne } from "drizzle-orm";
 import { authenticate, requireAdmin, isAdminRole } from "../middlewares/auth.js";
 import { attachBranch, branchEq, newRowBranch } from "../middlewares/branch.js";
 import { backupUsers, formatBackupUser } from "../lib/backup.js";
 import { memberCode } from "../lib/memberCode.js";
+import { normalizePhone } from "../lib/phone.js";
 import { initMemberFolder } from "../lib/memberLog.js";
 
 const router = Router();
@@ -282,17 +283,43 @@ router.patch("/:id", authenticate, async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    const { firstName, lastName, houseNumber, weight, height, phone, email, role, profileImageUrl } = req.body;
+    const { firstName, lastName, username, houseNumber, weight, height, phone, email, role, profileImageUrl } = req.body;
+    const isAdmin = isAdminRole(req.user!.role);
     const updates: Partial<typeof usersTable.$inferInsert> = {};
 
-    if (firstName) updates.firstName = firstName;
-    if (lastName) updates.lastName = lastName;
+    // Real name (ชื่อจริง/นามสกุล) is locked for members — only an admin may change it.
+    if (firstName && isAdmin) updates.firstName = firstName;
+    if (lastName && isAdmin) updates.lastName = lastName;
+
+    // Username — editable; must stay unique.
+    if (username !== undefined) {
+      const u = String(username).trim();
+      if (u.length < 3) return res.status(400).json({ error: "ชื่อผู้ใช้ต้องยาวอย่างน้อย 3 ตัวอักษร" });
+      const [taken] = await db.select({ id: usersTable.id }).from(usersTable)
+        .where(and(eq(usersTable.username, u), ne(usersTable.id, id))).limit(1);
+      if (taken) return res.status(400).json({ error: "ชื่อผู้ใช้นี้ถูกใช้งานแล้ว" });
+      updates.username = u;
+    }
+
     if (houseNumber !== undefined) updates.houseNumber = houseNumber || null;
     if (weight !== undefined) updates.weight = weight === "" || weight === null ? null : Number(weight);
     if (height !== undefined) updates.height = height === "" || height === null ? null : Number(height);
-    if (phone) updates.phone = phone;
+
+    // Phone — editable; keep phone_e164 in sync (it's the login + member-code identity) and unique.
+    if (phone) {
+      const p = String(phone).trim();
+      updates.phone = p;
+      const e164 = normalizePhone(p);
+      if (e164) {
+        const [dup] = await db.select({ id: usersTable.id }).from(usersTable)
+          .where(and(eq(usersTable.phoneE164, e164), ne(usersTable.id, id))).limit(1);
+        if (dup) return res.status(400).json({ error: "เบอร์โทรนี้ถูกใช้งานแล้ว" });
+        updates.phoneE164 = e164;
+      }
+    }
+
     if (email) updates.email = email;
-    if (role && isAdminRole(req.user!.role)) updates.role = role;
+    if (role && isAdmin) updates.role = role;
     if (profileImageUrl !== undefined) updates.profileImageUrl = profileImageUrl;
 
     const [user] = await db.update(usersTable).set(updates).where(eq(usersTable.id, id)).returning();

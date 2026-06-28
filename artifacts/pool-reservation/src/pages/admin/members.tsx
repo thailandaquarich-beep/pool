@@ -773,7 +773,7 @@ export function AdminMembers() {
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold truncate">{mp.package.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      ใช้ไป {mp.bookingsUsed}/{mp.package.maxBookingsPerMonth ?? "ไม่จำกัด"} • {mp.isExpired ? "หมดอายุแล้วเมื่อ" : "หมดอายุ"} {new Date(mp.endDate).toLocaleDateString("th-TH")} • ฿{Number(mp.pricePaid).toLocaleString("th-TH")}
+                      {mp.package.maxBookingsPerMonth == null ? "ไม่จำกัดจำนวนครั้ง" : `คงเหลือ ${Math.max(0, mp.package.maxBookingsPerMonth - mp.bookingsUsed)} ครั้ง`} • {mp.isExpired ? "หมดอายุแล้วเมื่อ" : "หมดอายุ"} {new Date(mp.endDate).toLocaleDateString("th-TH")} • ฿{Number(mp.pricePaid).toLocaleString("th-TH")}
                     </div>
                     <div className="text-[11px] text-muted-foreground">เติมเมื่อ {new Date(mp.createdAt).toLocaleString("th-TH")}</div>
                   </div>

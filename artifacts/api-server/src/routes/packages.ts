@@ -669,16 +669,40 @@ router.post("/:id/purchase", authenticate, attachBranch, async (req, res) => {
       branchId: newRowBranch(req),
     });
 
-    const endDate = new Date();
-    endDate.setDate(endDate.getDate() + pkg.durationDays);
+    // Re-buying a package the member still actively holds STACKS onto it: extend the
+    // expiry by another duration and bank another set of rounds (bookingsUsed goes down
+    // by the package quota → remaining grows). So time + rounds accumulate on ONE package
+    // instead of creating a separate entry. Expired/none → start a fresh package.
+    const uid = req.user!.userId;
+    const now = new Date();
+    const sameActive = await db.select().from(memberPackagesTable).where(and(
+      eq(memberPackagesTable.userId, uid),
+      eq(memberPackagesTable.packageId, packageId),
+      eq(memberPackagesTable.status, "active"),
+    )).orderBy(desc(memberPackagesTable.endDate)).limit(1);
+    const existing = sameActive.find((r) => new Date(r.endDate) > now) ?? null;
 
-    const [mp] = await db.insert(memberPackagesTable).values({
-      userId: req.user!.userId,
-      packageId,
-      pricePaid: String(price),
-      endDate,
-      branchId: newRowBranch(req),
-    }).returning();
+    let mp: typeof memberPackagesTable.$inferSelect;
+    if (existing) {
+      const base = new Date(existing.endDate) > now ? new Date(existing.endDate) : now;
+      base.setDate(base.getDate() + pkg.durationDays);
+      const addRounds = pkg.maxBookingsPerMonth ?? 0; // 0 for unlimited packages (no rounds to add)
+      [mp] = await db.update(memberPackagesTable).set({
+        endDate: base,
+        bookingsUsed: existing.bookingsUsed - addRounds,
+        pricePaid: String(Number(existing.pricePaid) + price),
+      }).where(eq(memberPackagesTable.id, existing.id)).returning();
+    } else {
+      const endDate = new Date();
+      endDate.setDate(endDate.getDate() + pkg.durationDays);
+      [mp] = await db.insert(memberPackagesTable).values({
+        userId: uid,
+        packageId,
+        pricePaid: String(price),
+        endDate,
+        branchId: newRowBranch(req),
+      }).returning();
+    }
 
     await appendMemberLog({ userId: req.user!.userId }, "activity", {
       action: "package_purchase", packageName: pkg.name, price,

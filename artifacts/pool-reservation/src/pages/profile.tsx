@@ -16,8 +16,7 @@ import { Camera, User, Lock, Eye, EyeOff, Waves, Timer, CalendarCheck, CalendarH
 import { cn } from "@/lib/utils";
 
 const profileSchema = z.object({
-  firstName: z.string().min(1, "Required"),
-  lastName: z.string().min(1, "Required"),
+  username: z.string().min(3, "ชื่อผู้ใช้ต้องยาวอย่างน้อย 3 ตัวอักษร"),
   weight: z.string().optional(),
   height: z.string().optional(),
   phone: z.string().min(1, "Required"),
@@ -48,8 +47,7 @@ export const Profile: FC = () => {
   const form = useForm<z.infer<typeof profileSchema>>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
-      firstName: user?.firstName || "",
-      lastName: user?.lastName || "",
+      username: user?.username || "",
       weight: (user as any)?.weight != null ? String((user as any).weight) : "",
       height: (user as any)?.height != null ? String((user as any).height) : "",
       phone: user?.phone || "",
@@ -64,8 +62,7 @@ export const Profile: FC = () => {
   useEffect(() => {
     if (!user) return;
     form.reset({
-      firstName: user.firstName || "",
-      lastName: user.lastName || "",
+      username: user.username || "",
       weight: (user as any).weight != null ? String((user as any).weight) : "",
       height: (user as any).height != null ? String((user as any).height) : "",
       phone: user.phone || "",
@@ -232,14 +229,18 @@ export const Profile: FC = () => {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              {/* Real name is locked — members can't edit it (contact staff to change). */}
               <div className="grid grid-cols-2 gap-4">
-                <FormField control={form.control} name="firstName" render={({ field }) => (
-                  <FormItem><FormLabel>{t("auth.firstName")}</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-                )} />
-                <FormField control={form.control} name="lastName" render={({ field }) => (
-                  <FormItem><FormLabel>{t("auth.lastName")}</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-                )} />
+                <div className="space-y-2">
+                  <Label>{t("auth.firstName")}</Label>
+                  <Input value={user?.firstName ?? ""} disabled className="bg-muted" />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t("auth.lastName")}</Label>
+                  <Input value={user?.lastName ?? ""} disabled className="bg-muted" />
+                </div>
               </div>
+              <p className="text-[11px] text-muted-foreground -mt-2">ชื่อจริง-นามสกุลแก้ไขไม่ได้ หากต้องการเปลี่ยนกรุณาติดต่อเจ้าหน้าที่</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <FormField control={form.control} name="weight" render={({ field }) => (
                   <FormItem><FormLabel>{t("auth.weight")}</FormLabel><FormControl><Input type="number" min={0} {...field} /></FormControl><FormMessage /></FormItem>
@@ -255,10 +256,9 @@ export const Profile: FC = () => {
                 <FormItem><FormLabel>{t("auth.email")}</FormLabel><FormControl><Input type="email" {...field} /></FormControl><FormMessage /></FormItem>
               )} />
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>{t("auth.username")}</Label>
-                  <Input value={user?.username ?? ""} disabled className="bg-muted" />
-                </div>
+                <FormField control={form.control} name="username" render={({ field }) => (
+                  <FormItem><FormLabel>{t("auth.username")}</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+                )} />
                 <div className="space-y-2">
                   <Label>{t("auth.memberCode")}</Label>
                   <Input value={(user as any)?.memberCode ?? "-"} disabled className="bg-muted font-mono font-semibold text-primary" />
