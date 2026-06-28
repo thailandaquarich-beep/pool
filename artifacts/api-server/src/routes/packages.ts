@@ -628,6 +628,7 @@ router.get("/my-usage", authenticate, async (req, res) => {
         memberPackageId: u.memberPackage.id,
         packageId: u.package.id,
         name: u.package.name,
+        category: u.package.category ?? null,
         endDate: u.memberPackage.endDate.toISOString(),
         quota: u.quota,
         used: u.used,

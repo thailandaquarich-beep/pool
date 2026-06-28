@@ -482,7 +482,16 @@ router.post("/", authenticate, attachBranch, async (req, res) => {
 
     if (instructor) {
       const teachingSlot = await instructorAvailabilityForSlot(instructor.id, date, startTime, endTime);
-      if (teachingSlot?.packageId && selectedUsage.package.id !== teachingSlot.packageId) {
+      // The slot may require a course CATEGORY (new) or a specific package (legacy).
+      // Category takes precedence: the member's chosen package must be in that category.
+      if (teachingSlot?.category) {
+        if ((selectedUsage.package.category ?? null) !== teachingSlot.category) {
+          return res.status(400).json({
+            error: `ช่วงเวลานี้สอนหมวด "${teachingSlot.category}" กรุณาเลือกคอร์สในหมวดนี้`,
+            needPackage: true,
+          });
+        }
+      } else if (teachingSlot?.packageId && selectedUsage.package.id !== teachingSlot.packageId) {
         return res.status(400).json({
           error: "คอร์สที่เลือกไม่ตรงกับคอร์สของช่วงเวลาครู กรุณาเลือกคอร์สที่ถูกต้อง",
           needPackage: true,

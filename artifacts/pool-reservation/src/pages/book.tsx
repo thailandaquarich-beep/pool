@@ -27,6 +27,7 @@ type TeachingSlot = {
   startTime: string;
   endTime: string;
   note: string | null;
+  category: string | null;
   packageId: number | null;
   packageName: string | null;
   bookedPeople: number;
@@ -178,6 +179,7 @@ export const Book: FC = () => {
       used: number;
       remaining: number | null;
       expired?: boolean;
+      category?: string | null;
     }>;
   }>({
     queryKey: ["packages", "my-usage"],
@@ -193,10 +195,14 @@ export const Book: FC = () => {
   const hasActivePackage = usage?.hasActivePackage ?? false;
   // Members can only book with a non-expired package that still has uses left.
   const usablePackages = (usage?.packages ?? []).filter((pkg) => !pkg.expired && (pkg.remaining === null || pkg.remaining > 0));
+  // The teacher's slot may require a course CATEGORY (new) or a specific package (legacy).
+  const requiredCategory = selectedTeacherSlot?.category ?? null;
   const requiredPackageId = selectedTeacherSlot?.packageId ?? null;
-  const bookingPackages = requiredPackageId
-    ? usablePackages.filter((pkg) => pkg.packageId === requiredPackageId)
-    : usablePackages;
+  const bookingPackages = requiredCategory
+    ? usablePackages.filter((pkg) => (pkg.category ?? null) === requiredCategory)
+    : requiredPackageId
+      ? usablePackages.filter((pkg) => pkg.packageId === requiredPackageId)
+      : usablePackages;
   const selectedPackage = bookingPackages.find((pkg) => pkg.memberPackageId === memberPackageId) ?? null;
 
   useEffect(() => {
@@ -602,8 +608,8 @@ export const Book: FC = () => {
                         </div>
                         <div className="text-xs text-muted-foreground">
                           จองแล้ว {teacherSlot.bookedPeople}/{teacherSlot.maxPeople} คน · รับได้อีก {teacherSlot.remainingPeople} คน
-                          {teacherSlot.packageName ? ` · คอร์ส: ${teacherSlot.packageName}` : ""}
-                          {teacherSlot.note ? ` · คอร์ส/หมายเหตุ: ${teacherSlot.note}` : ""}
+                          {teacherSlot.category ? ` · หมวด: ${teacherSlot.category}` : teacherSlot.packageName ? ` · คอร์ส: ${teacherSlot.packageName}` : ""}
+                          {teacherSlot.note ? ` · หมายเหตุ: ${teacherSlot.note}` : ""}
                         </div>
                       </div>
                     )}
@@ -747,9 +753,11 @@ export const Book: FC = () => {
                     {remaining === null ? "ไม่จำกัด" : `${remaining} ครั้ง`}
                   </span>
                 </div>
-                {requiredPackageId && (
+                {(requiredCategory || requiredPackageId) && (
                   <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm text-primary">
-                    คอร์สช่วงเวลานี้: {selectedTeacherSlot?.packageName ?? "คอร์สที่แอดมินกำหนด"}
+                    {requiredCategory
+                      ? `ช่วงเวลานี้สอนหมวด: ${requiredCategory} (เลือกคอร์สในหมวดนี้)`
+                      : `คอร์สช่วงเวลานี้: ${selectedTeacherSlot?.packageName ?? "คอร์สที่แอดมินกำหนด"}`}
                   </div>
                 )}
                 {bookingPackages.length > 0 && (
@@ -786,10 +794,10 @@ export const Book: FC = () => {
                     </div>
                   </div>
                 )}
-                {requiredPackageId && usablePackages.length > 0 && bookingPackages.length === 0 && (
+                {(requiredCategory || requiredPackageId) && usablePackages.length > 0 && bookingPackages.length === 0 && (
                   <div className="flex items-start gap-2 rounded-xl bg-destructive/10 text-destructive p-3 text-sm">
                     <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                    คุณยังไม่มีแพ็กเกจที่ตรงกับคอร์สช่วงเวลานี้
+                    {requiredCategory ? `คุณยังไม่มีคอร์สในหมวด "${requiredCategory}" สำหรับช่วงเวลานี้` : "คุณยังไม่มีแพ็กเกจที่ตรงกับคอร์สช่วงเวลานี้"}
                   </div>
                 )}
                 <div className="flex items-start gap-2 rounded-lg bg-[#e8f4fb] p-3 text-xs text-[#31536f] dark:bg-blue-950/30 dark:text-blue-300">

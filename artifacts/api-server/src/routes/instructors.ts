@@ -320,6 +320,7 @@ router.get("/teaching", authenticate, attachBranch, async (req, res) => {
           startTime,
           endTime,
           note: cover.note,
+          category: cover.category ?? null,
           packageId: cover.packageId,
           packageName: cover.packageId ? packageById.get(cover.packageId)?.name ?? null : null,
           bookedPeople,
@@ -385,7 +386,7 @@ router.get("/calendar", authenticate, attachBranch, async (req, res) => {
     const days: Record<string, Array<{
       instructorId: number; firstName: string; lastName: string; specialty: string | null;
       startTime: string; endTime: string; note: string | null; maxPeople: number;
-      packageId: number | null; packageName: string | null;
+      category: string | null; packageId: number | null; packageName: string | null;
     }>> = {};
 
     for (let d = 1; d <= daysInMonth; d++) {
@@ -409,6 +410,7 @@ router.get("/calendar", authenticate, attachBranch, async (req, res) => {
             endTime: row.endTime,
             note: row.note,
             maxPeople: row.maxPeople ?? DEFAULT_INSTRUCTOR_MAX_PEOPLE_PER_SLOT,
+            category: row.category ?? null,
             packageId: row.packageId,
             packageName: row.packageId ? packageById.get(row.packageId)?.name ?? null : null,
           });
@@ -596,7 +598,7 @@ router.post("/me/availability", authenticate, async (req, res) => {
   try {
     const inst = await ensureInstructorForUser(req.user!.userId);
     if (!inst) return res.status(404).json({ error: "No instructor profile" });
-    const { kind, dayOfWeek, date, startTime, endTime, note, isAvailable, maxPeople, packageId } = req.body;
+    const { kind, dayOfWeek, date, startTime, endTime, note, isAvailable, maxPeople, packageId, category } = req.body;
     const validationError = validateAvailability({ kind, dayOfWeek, date, startTime, endTime });
     if (validationError) return res.status(400).json({ error: validationError });
     const parsedMaxPeople = parseMaxPeople(maxPeople);
@@ -621,6 +623,7 @@ router.post("/me/availability", authenticate, async (req, res) => {
       date: kind === "date" ? date : null,
       startTime, endTime, note: note || null, isAvailable: isAvailable === false ? false : true,
       maxPeople: parsedMaxPeople,
+      category: typeof category === "string" && category.trim() ? category.trim() : null,
       packageId: selectedPackageId,
     }).returning();
     return res.status(201).json(row);
@@ -649,6 +652,7 @@ router.patch("/me/availability/:slotId", authenticate, async (req, res) => {
       isAvailable: req.body.isAvailable !== undefined ? Boolean(req.body.isAvailable) : current.isAvailable,
       maxPeople: req.body.maxPeople ?? current.maxPeople,
       packageId: req.body.packageId !== undefined ? req.body.packageId : current.packageId,
+      category: req.body.category !== undefined ? req.body.category : current.category,
     };
     const validationError = validateAvailability(candidate);
     if (validationError) return res.status(400).json({ error: validationError });
@@ -680,6 +684,7 @@ router.patch("/me/availability/:slotId", authenticate, async (req, res) => {
       note: candidate.note || null,
       isAvailable: candidate.isAvailable,
       maxPeople: parsedMaxPeople,
+      category: typeof candidate.category === "string" && candidate.category.trim() ? candidate.category.trim() : null,
       packageId: selectedPackageId,
     }).where(and(eq(instructorAvailabilityTable.id, slotId), eq(instructorAvailabilityTable.instructorId, inst.id))).returning();
     return res.json(updated);
@@ -725,7 +730,7 @@ router.post("/:id/availability", authenticate, requireAdmin, attachBranch, async
     )).limit(1);
     if (!inst) return res.status(404).json({ error: "Instructor not found" });
 
-    const { kind, dayOfWeek, date, startTime, endTime, note, isAvailable, maxPeople, packageId } = req.body;
+    const { kind, dayOfWeek, date, startTime, endTime, note, isAvailable, maxPeople, packageId, category } = req.body;
     const validationError = validateAvailability({ kind, dayOfWeek, date, startTime, endTime });
     if (validationError) return res.status(400).json({ error: validationError });
     const parsedMaxPeople = parseMaxPeople(maxPeople);
@@ -748,6 +753,7 @@ router.post("/:id/availability", authenticate, requireAdmin, attachBranch, async
       startTime,
       endTime,
       maxPeople: parsedMaxPeople,
+      category: typeof category === "string" && category.trim() ? category.trim() : null,
       packageId: selectedPackageId,
       note: note || null,
       isAvailable: isAvailable === false ? false : true,
@@ -785,6 +791,7 @@ router.patch("/:id/availability/:slotId", authenticate, requireAdmin, attachBran
       isAvailable: req.body.isAvailable !== undefined ? Boolean(req.body.isAvailable) : current.isAvailable,
       maxPeople: req.body.maxPeople ?? current.maxPeople,
       packageId: req.body.packageId !== undefined ? req.body.packageId : current.packageId,
+      category: req.body.category !== undefined ? req.body.category : current.category,
     };
     const validationError = validateAvailability(candidate);
     if (validationError) return res.status(400).json({ error: validationError });
@@ -807,6 +814,7 @@ router.patch("/:id/availability/:slotId", authenticate, requireAdmin, attachBran
       startTime: candidate.startTime,
       endTime: candidate.endTime,
       maxPeople: parsedMaxPeople,
+      category: typeof candidate.category === "string" && candidate.category.trim() ? candidate.category.trim() : null,
       packageId: selectedPackageId,
       note: candidate.note || null,
       isAvailable: candidate.isAvailable,

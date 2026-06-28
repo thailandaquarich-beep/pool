@@ -27,6 +27,7 @@ type Avail = {
   endTime: string;
   maxPeople: number;
   packageId: number | null;
+  category?: string | null;
   note: string | null;
   isAvailable: boolean;
 };
@@ -45,7 +46,7 @@ type ScheduleForm = {
   startTime: string;
   endTime: string;
   maxPeople: string;
-  packageId: string;
+  category: string;
   note: string;
   isAvailable: boolean;
 };
@@ -65,7 +66,7 @@ const emptyForm = (): ScheduleForm => ({
   startTime: "17:00",
   endTime: "19:00",
   maxPeople: "5",
-  packageId: "none",
+  category: "none",
   note: "",
   isAvailable: true,
 });
@@ -100,6 +101,18 @@ export function AdminInstructorScheduleDialog({
       const data = await res.json().catch(() => []);
       if (!res.ok) throw new Error(data.error || "โหลดตารางสอนไม่สำเร็จ");
       return data;
+    },
+  });
+
+  const { data: categoryList = [] } = useQuery<string[]>({
+    queryKey: ["packages", "categories"],
+    enabled: open,
+    queryFn: async () => {
+      const res = await fetch(`${baseUrl}/api/packages/categories`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return [];
+      return res.json();
     },
   });
 
@@ -140,7 +153,8 @@ export function AdminInstructorScheduleDialog({
             startTime: form.startTime,
             endTime: form.endTime,
             maxPeople,
-            packageId: form.packageId === "none" ? null : Number(form.packageId),
+            category: form.category === "none" ? null : form.category,
+            packageId: null,
             note: form.note,
             isAvailable: form.isAvailable,
           }
@@ -150,7 +164,8 @@ export function AdminInstructorScheduleDialog({
             startTime: form.startTime,
             endTime: form.endTime,
             maxPeople,
-            packageId: form.packageId === "none" ? null : Number(form.packageId),
+            category: form.category === "none" ? null : form.category,
+            packageId: null,
             note: form.note,
             isAvailable: form.isAvailable,
           };
@@ -205,7 +220,7 @@ export function AdminInstructorScheduleDialog({
       startTime: slot.startTime,
       endTime: slot.endTime,
       maxPeople: String(slot.maxPeople ?? 5),
-      packageId: slot.packageId ? String(slot.packageId) : "none",
+      category: slot.category ? slot.category : "none",
       note: slot.note ?? "",
       isAvailable: slot.isAvailable,
     });
@@ -230,10 +245,10 @@ export function AdminInstructorScheduleDialog({
           {slot.isAvailable && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary">รับ {slot.maxPeople ?? 5} คน</span>}
           {!slot.isAvailable && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700">ปิดรับสอน</span>}
         </div>
-        {(slot.packageId || slot.note) && (
+        {(slot.category || slot.packageId || slot.note) && (
           <p className="truncate text-xs text-muted-foreground">
-            {slot.packageId ? `คอร์ส: ${packageNameById.get(slot.packageId) ?? `#${slot.packageId}`}` : ""}
-            {slot.packageId && slot.note ? " · " : ""}
+            {slot.category ? `หมวดหมู่: ${slot.category}` : slot.packageId ? `คอร์ส: ${packageNameById.get(slot.packageId) ?? `#${slot.packageId}`}` : ""}
+            {(slot.category || slot.packageId) && slot.note ? " · " : ""}
             {slot.note ?? ""}
           </p>
         )}
@@ -352,19 +367,17 @@ export function AdminInstructorScheduleDialog({
               </div>
 
               <div className="space-y-1.5">
-                <Label>คอร์สสำหรับช่วงเวลานี้</Label>
-                <Select value={form.packageId} onValueChange={(v) => setForm((f) => ({ ...f, packageId: v }))}>
+                <Label>หมวดหมู่คอส สำหรับช่วงเวลานี้</Label>
+                <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">ไม่ระบุคอร์ส</SelectItem>
-                    {packages.map((pkg) => (
-                      <SelectItem key={pkg.id} value={String(pkg.id)}>
-                        {pkg.category ? `[${pkg.category}] ` : ""}{pkg.name}{pkg.isActive === false ? " (ปิดใช้งาน)" : ""}
-                      </SelectItem>
+                    <SelectItem value="none">ทุกหมวดหมู่ (ไม่จำกัด)</SelectItem>
+                    {categoryList.map((cat) => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">ถ้าระบุคอร์ส สมาชิกจะใช้ได้เฉพาะแพ็กเกจที่ตรงกับช่วงเวลาครูนี้</p>
+                <p className="text-xs text-muted-foreground">ถ้าระบุหมวดหมู่ สมาชิกจะจองช่วงนี้ได้เฉพาะคอร์สในหมวดเดียวกัน</p>
               </div>
 
               <label className={cn("flex cursor-pointer items-center justify-between gap-3 rounded-lg border p-3", !form.isAvailable && "border-amber-300 bg-amber-50")}>

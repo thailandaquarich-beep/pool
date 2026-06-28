@@ -14,6 +14,10 @@ export const instructorAvailabilityTable = pgTable("instructor_availability", {
   startTime: text("start_time").notNull(), // "HH:MM"
   endTime: text("end_time").notNull(),
   maxPeople: integer("max_people").notNull().default(5),
+  // Course CATEGORY this slot teaches (e.g. "ว่ายน้ำ"). Members may book it with any
+  // package in this category. Newer than packageId (a specific course) which is kept for
+  // legacy slots; category takes precedence in booking when set.
+  category: text("category"),
   packageId: integer("package_id").references(() => membershipPackagesTable.id, { onDelete: "set null" }),
   note: text("note"),
   isAvailable: boolean("is_available").notNull().default(true), // false = blocked-out slot

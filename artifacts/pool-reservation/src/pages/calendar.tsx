@@ -45,6 +45,7 @@ type CalSlot = {
   endTime: string;
   note: string | null;
   maxPeople: number;
+  category: string | null;
   packageId: number | null;
   packageName: string | null;
 };
@@ -459,9 +460,11 @@ export const Calendar: FC = () => {
                       {s.note && <p className="text-xs text-muted-foreground truncate mt-0.5">{s.note}</p>}
                     </div>
                     <div className="text-right shrink-0">
-                      {s.packageName && (
+                      {s.category ? (
+                        <Badge variant="outline" className="text-[10px]">{s.category}</Badge>
+                      ) : s.packageName ? (
                         <Badge variant="outline" className="text-[10px]">{s.packageName}</Badge>
-                      )}
+                      ) : null}
                       <p className="text-[10px] text-muted-foreground mt-1">รับ {s.maxPeople} คน</p>
                     </div>
                   </div>
