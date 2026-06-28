@@ -94,7 +94,7 @@ export const Dashboard: FC = () => {
     {
       label: "สิทธิ์คงเหลือ",
       value: remaining === null ? "ไม่จำกัด" : `${remaining} ครั้ง`,
-      detail: "การจอง 1 รอบจะใช้ 1 สิทธิ์เมื่อระบบยืนยัน",
+      detail: "แตะเพื่อดูประวัติแพ็กเกจสมาชิก / การใช้งาน",
       icon: Ticket,
       href: "/packages",
       tone: "text-[#0f8f7e] bg-[#e8f8f4]",

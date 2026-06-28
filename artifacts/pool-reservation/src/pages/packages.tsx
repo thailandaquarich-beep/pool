@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Crown, CheckCircle2, Calendar, Zap, ShoppingBag } from "lucide-react";
+import { Crown, CheckCircle2, Calendar, Zap, ShoppingBag, History, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -14,6 +14,8 @@ import {
 
 type Package = { id: number; name: string; nameEn: string; description?: string; imageUrl?: string | null; price: number; durationDays: number; benefits?: string; bookingDiscount: number; maxBookingsPerMonth?: number; isActive: boolean };
 type MemberPackage = { id: number; packageId: number; pricePaid: number; status: string; startDate: string; endDate: string; isExpired: boolean; package: Package };
+type CourseUsage = { id: number; createdAt: string; source: string; packageName?: string; reservation?: { date: string; startTime: string; endTime: string } | null };
+type CoursePurchase = { id: number; createdAt: string; packageName: string; amount: number; status: string };
 
 export const Packages: FC = () => {
   const { t } = useTranslation();
@@ -27,17 +29,20 @@ export const Packages: FC = () => {
   const [loading, setLoading] = useState(true);
   const [buyPkg, setBuyPkg] = useState<Package | null>(null);
   const [buying, setBuying] = useState(false);
+  const [history, setHistory] = useState<{ usages: CourseUsage[]; purchases: CoursePurchase[] }>({ usages: [], purchases: [] });
 
   const fetchAll = async () => {
     setLoading(true);
-    const [pkRes, myRes, wRes] = await Promise.all([
+    const [pkRes, myRes, wRes, hRes] = await Promise.all([
       fetch(`${baseUrl}/api/packages`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${baseUrl}/api/packages/my`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${baseUrl}/api/wallet/me`, { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(`${baseUrl}/api/packages/my/history`, { headers: { Authorization: `Bearer ${token}` } }),
     ]);
     if (pkRes.ok) setPackages(await pkRes.json());
     if (myRes.ok) setMyPackages(await myRes.json());
     if (wRes.ok) setWallet(await wRes.json());
+    if (hRes.ok) { const h = await hRes.json(); setHistory({ usages: h.usages ?? [], purchases: h.purchases ?? [] }); }
     setLoading(false);
   };
 
@@ -142,6 +147,56 @@ export const Packages: FC = () => {
             </Card>
           );
         })}
+      </div>
+
+      {/* ประวัติแพ็กเกจสมาชิก / การใช้งาน */}
+      <div id="history" className="space-y-4 pt-2">
+        <h2 className="text-lg font-bold flex items-center gap-2"><History className="w-5 h-5 text-primary" /> ประวัติแพ็กเกจสมาชิก / การใช้งาน</h2>
+
+        <Card>
+          <CardContent className="p-4 space-y-2">
+            <div className="text-sm font-semibold flex items-center gap-1.5"><Clock className="w-4 h-4 text-primary" /> ประวัติการใช้งานคอร์ส</div>
+            {history.usages.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">ยังไม่มีประวัติการใช้งาน</p>
+            ) : (
+              <div className="space-y-1.5">
+                {history.usages.slice(0, 30).map((u) => (
+                  <div key={u.id} className="flex items-center justify-between gap-3 rounded-xl bg-secondary/40 p-2.5 text-sm">
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{u.packageName}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {u.source === "checkin" ? "เช็คอินหน้างาน" : "ใช้จากการจอง"}
+                        {u.reservation ? ` · ${u.reservation.date} ${u.reservation.startTime}-${u.reservation.endTime}` : ""}
+                      </div>
+                    </div>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">{new Date(u.createdAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4 space-y-2">
+            <div className="text-sm font-semibold flex items-center gap-1.5"><Crown className="w-4 h-4 text-amber-500" /> ประวัติการซื้อ/เติมแพ็กเกจ</div>
+            {history.purchases.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">ยังไม่มีประวัติการซื้อแพ็กเกจ</p>
+            ) : (
+              <div className="space-y-1.5">
+                {history.purchases.slice(0, 30).map((p) => (
+                  <div key={p.id} className="flex items-center justify-between gap-3 rounded-xl bg-secondary/40 p-2.5 text-sm">
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{p.packageName}</div>
+                      <div className="text-xs text-muted-foreground">{new Date(p.createdAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}</div>
+                    </div>
+                    <span className="font-semibold text-primary whitespace-nowrap shrink-0">฿{p.amount.toLocaleString("th-TH")}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Purchase dialog */}
