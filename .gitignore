@@ -8,6 +8,14 @@ out-tsc
 .expo
 .expo-shared
 
+# logs (must never be committed — they grow huge and can leak data)
+*.log
+
+# tool caches / scratch
+.wrangler/
+.qodo/
+test-results/
+
 # dependencies
 node_modules
 node_modules.broken/
