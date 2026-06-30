@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 type Avail = {
   id: number; kind: "weekly" | "date"; dayOfWeek: number | null; date: string | null;
   startTime: string; endTime: string; note: string | null; isAvailable: boolean;
+  maxPeople?: number; category?: string | null;
 };
 type Booking = {
   id: number; date: string; startTime: string; endTime: string; numberOfPeople: number;
@@ -34,6 +35,9 @@ export const InstructorSchedule: FC = () => {
   const [date, setDate] = useState("");
   const [startTime, setStartTime] = useState("17:00");
   const [endTime, setEndTime] = useState("19:00");
+  const [maxPeople, setMaxPeople] = useState("5");
+  const [category, setCategory] = useState("none");
+  const [categoryList, setCategoryList] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -69,11 +73,16 @@ export const InstructorSchedule: FC = () => {
       toast({ title: "ไม่สำเร็จ", description: e?.message, variant: "destructive" });
     } finally { setBusyId(null); }
   };
+  const loadCategories = async () => {
+    const r = await fetch(`${baseUrl}/api/packages/categories`, { headers });
+    if (r.ok) { const list = await r.json(); if (Array.isArray(list)) setCategoryList(list); }
+  };
   useEffect(() => {
     (async () => {
       const m = await fetch(`${baseUrl}/api/instructors/me`, { headers });
       if (m.ok) setMe(await m.json());
       await load();
+      await loadCategories();
       await loadBookings();
       await loadStats();
       setLoading(false);
@@ -87,9 +96,10 @@ export const InstructorSchedule: FC = () => {
     if (startTime >= endTime) { toast({ title: "เวลาเริ่มต้องก่อนเวลาสิ้นสุด", variant: "destructive" }); return; }
     setSaving(true);
     try {
+      const extra = { startTime, endTime, note, maxPeople: Number(maxPeople), category: category === "none" ? null : category };
       const body = kind === "weekly"
-        ? { kind, dayOfWeek: Number(dayOfWeek), startTime, endTime, note }
-        : { kind, date, startTime, endTime, note };
+        ? { kind, dayOfWeek: Number(dayOfWeek), ...extra }
+        : { kind, date, ...extra };
       const url = editingId == null
         ? `${baseUrl}/api/instructors/me/availability`
         : `${baseUrl}/api/instructors/me/availability/${editingId}`;
@@ -140,12 +150,13 @@ export const InstructorSchedule: FC = () => {
 
   const resetForm = () => {
     setEditingId(null); setKind("weekly"); setDayOfWeek("1"); setDate("");
-    setStartTime("17:00"); setEndTime("19:00"); setNote("");
+    setStartTime("17:00"); setEndTime("19:00"); setNote(""); setMaxPeople("5"); setCategory("none");
   };
 
   const edit = (slot: Avail) => {
     setEditingId(slot.id); setKind(slot.kind); setDayOfWeek(String(slot.dayOfWeek ?? 1));
     setDate(slot.date ?? ""); setStartTime(slot.startTime); setEndTime(slot.endTime); setNote(slot.note ?? "");
+    setMaxPeople(String(slot.maxPeople ?? 5)); setCategory(slot.category ? slot.category : "none");
     document.getElementById("availability-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
@@ -296,6 +307,17 @@ export const InstructorSchedule: FC = () => {
             )}
             <div className="space-y-1"><Label>เวลาเริ่ม</Label><Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} /></div>
             <div className="space-y-1"><Label>เวลาสิ้นสุด</Label><Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} /></div>
+            <div className="space-y-1"><Label>จำนวนรับสอน (คน/รอบ)</Label><Input type="number" min={0} max={99} value={maxPeople} onChange={(e) => setMaxPeople(e.target.value)} /></div>
+            <div className="space-y-1">
+              <Label>หมวดหมู่คอส สำหรับช่วงนี้</Label>
+              <Select value={category} onValueChange={setCategory}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">ทุกหมวดหมู่ (ไม่จำกัด)</SelectItem>
+                  {categoryList.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-1 sm:col-span-2"><Label>หมายเหตุ (ถ้ามี)</Label><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="เช่น สอนว่ายน้ำเด็ก" /></div>
           </div>
           <div className="flex flex-col-reverse sm:flex-row gap-2">
@@ -314,6 +336,7 @@ export const InstructorSchedule: FC = () => {
               <div key={s.id} className="flex items-center gap-2 sm:gap-3 p-2.5 rounded-lg bg-secondary/50">
                 <span className="font-medium text-sm w-20">{DOW[s.dayOfWeek!]}</span>
                 <span className="text-sm flex items-center gap-1 text-muted-foreground"><Clock className="w-3.5 h-3.5" />{s.startTime}-{s.endTime}</span>
+                {s.category && <span className="text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">{s.category}</span>}
                 {s.note && <span className="text-xs text-muted-foreground truncate">· {s.note}</span>}
                 <div className="ml-auto flex shrink-0"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => edit(s)} aria-label="แก้ไขเวลา"><Pencil className="w-4 h-4" /></Button><Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => remove(s.id)} aria-label="ลบเวลา"><Trash2 className="w-4 h-4" /></Button></div>
               </div>
@@ -330,6 +353,7 @@ export const InstructorSchedule: FC = () => {
               <div key={s.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-secondary/50">
                 <span className="font-medium text-sm">{new Date(s.date! + "T00:00:00").toLocaleDateString("th-TH", { weekday: "short", day: "numeric", month: "short" })}</span>
                 <span className="text-sm flex items-center gap-1 text-muted-foreground"><Clock className="w-3.5 h-3.5" />{s.startTime}-{s.endTime}</span>
+                {s.category && <span className="text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">{s.category}</span>}
                 {s.note && <span className="text-xs text-muted-foreground truncate">· {s.note}</span>}
                 <div className="ml-auto flex shrink-0"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => edit(s)} aria-label="แก้ไขเวลา"><Pencil className="w-4 h-4" /></Button><Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => remove(s.id)} aria-label="ลบเวลา"><Trash2 className="w-4 h-4" /></Button></div>
               </div>
